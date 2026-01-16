@@ -183,7 +183,7 @@
     .list{
       padding:14px 16px 16px 16px;
       border-top:1px solid rgba(122,63,255,.18);
-      max-height: 340px;
+      max-height: 380px;
       overflow:auto;
     }
     .list h3{
@@ -232,6 +232,17 @@
       color: var(--neon2);
       box-shadow: 0 0 14px rgba(47,230,255,.10);
       backdrop-filter: blur(6px);
+    }
+
+    .smallBtn {
+      padding:8px 10px;
+      border-radius:12px;
+      font-size:11px;
+    }
+    hr.soft{
+      border:none;
+      border-top:1px solid rgba(122,63,255,.18);
+      margin:10px 0;
     }
   </style>
 </head>
@@ -301,8 +312,30 @@
           </div>
 
           <div class="list">
-            <h3>Rides (local)</h3>
-            <div id="ridesList"></div>
+            <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+              <button id="tabRides" class="primary" style="flex:1;">RIDES</button>
+              <button id="tabSegments" style="flex:1;">SEGMENTS</button>
+            </div>
+
+            <div id="panelRides">
+              <h3>Rides (local)</h3>
+              <div id="ridesList"></div>
+            </div>
+
+            <div id="panelSegments" style="display:none;">
+              <h3>Segments (local)</h3>
+
+              <div class="actions" style="margin-bottom:10px;">
+                <button id="btnCreateSegment" class="primary">CREATE SEGMENT</button>
+                <button id="btnCancelSegment">CANCEL</button>
+              </div>
+
+              <div style="color:rgba(234,240,255,.65); font-size:12px; margin-bottom:10px;" id="segmentHint">
+                Tip: CREATE SEGMENT → click Start en el mapa → click End en el mapa.
+              </div>
+
+              <div id="segmentsList"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -340,6 +373,18 @@
     // ---------- State ----------
     const STORAGE_KEY = "apex_ride_web_rides_v1";
     let rides = loadRides();
+
+    // Segments storage
+    const SEGMENTS_KEY = "apex_ride_web_segments_v1";
+    let segments = loadSegments();
+    let activeTab = "rides";
+
+    // Segment creation state
+    let creatingSegment = false;
+    let createStage = 0; // 0=none, 1=waiting start, 2=waiting end
+    let segStart = null;
+    let segEnd = null;
+
     let recording = false;
     let watchId = null;
     let startTs = null;
@@ -350,6 +395,11 @@
     let timerId = null;
     let polyline = null;
     let marker = null;
+
+    let segStartMarker = null;
+    let segEndMarker = null;
+
+    const mockUser = { uid: "local_user", name: "AREIVAN" };
 
     // ---------- Map ----------
     const map = L.map('map', { zoomControl: true }).setView([19.4326, -99.1332], 12); // CDMX default
@@ -378,6 +428,53 @@
     const btnCenter = document.getElementById("btnCenter");
     const btnClear = document.getElementById("btnClear");
 
+    // Segments UI refs
+    const tabRides = document.getElementById("tabRides");
+    const tabSegments = document.getElementById("tabSegments");
+    const panelRides = document.getElementById("panelRides");
+    const panelSegments = document.getElementById("panelSegments");
+    const btnCreateSegment = document.getElementById("btnCreateSegment");
+    const btnCancelSegment = document.getElementById("btnCancelSegment");
+    const segmentHint = document.getElementById("segmentHint");
+    const segmentsList = document.getElementById("segmentsList");
+
+    // ---------- Storage ----------
+    function loadRides(){
+      try{
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : [];
+      }catch(e){ return []; }
+    }
+    function saveRides(){
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(rides));
+    }
+    function loadSegments(){
+      try{
+        const raw = localStorage.getItem(SEGMENTS_KEY);
+        return raw ? JSON.parse(raw) : [];
+      }catch(e){ return []; }
+    }
+    function saveSegments(){
+      localStorage.setItem(SEGMENTS_KEY, JSON.stringify(segments));
+    }
+
+    // ---------- Tabs ----------
+    function setTab(tab){
+      activeTab = tab;
+      if(tab === "rides"){
+        panelRides.style.display = "";
+        panelSegments.style.display = "none";
+        tabRides.classList.add("primary");
+        tabSegments.classList.remove("primary");
+      }else{
+        panelRides.style.display = "none";
+        panelSegments.style.display = "";
+        tabSegments.classList.add("primary");
+        tabRides.classList.remove("primary");
+        renderSegments();
+      }
+    }
+
     // ---------- Render rides list ----------
     function renderRides(){
       ridesList.innerHTML = "";
@@ -398,14 +495,13 @@
     }
 
     function showRide(r){
-      // Draw stored ride on map
+      clearMapMarkersOnly();
       const latlngs = r.points.map(p => [p.lat, p.lng]);
       polyline.setLatLngs(latlngs);
       if(latlngs.length){
         map.fitBounds(polyline.getBounds().pad(0.2));
         setMarker(latlngs[latlngs.length-1][0], latlngs[latlngs.length-1][1]);
       }
-      // Update stats panel
       elSpeedNow.textContent = "0";
       elSpeedMax.textContent = String(Math.round(r.maxKmh));
       elTime.textContent = fmtTime(r.durationS);
@@ -417,23 +513,136 @@
       elRec.textContent = "REC: OFF";
     }
 
-    function setMarker(lat,lng){
-      if(!marker){
-        marker = L.circleMarker([lat,lng], { radius: 8, weight: 2, opacity: 0.9, fillOpacity: 0.6 }).addTo(map);
-      } else {
-        marker.setLatLng([lat,lng]);
+    // ---------- Segments ----------
+    function renderSegments(){
+      segmentsList.innerHTML = "";
+      if(!segments.length){
+        segmentsList.innerHTML = `<div style="color:rgba(234,240,255,.6); font-size:12px;">No segments yet. Create one.</div>`;
+        return;
       }
+
+      segments.slice().reverse().forEach((s) => {
+        const best = (s.attempts && s.attempts.length)
+          ? s.attempts.slice().sort((a,b)=>a.timeS-b.timeS)[0]
+          : null;
+
+        const div = document.createElement("div");
+        div.className = "rideItem";
+        div.innerHTML = `
+          <div class="t">${s.name}</div>
+          <div class="m">Radius: ${s.radiusM}m • Attempts: ${(s.attempts?.length||0)} • PB: ${best ? fmtTime(best.timeS) : "—"}</div>
+          <hr class="soft"/>
+          <div style="display:flex; gap:8px;">
+            <button class="smallBtn" data-act="show">SHOW</button>
+            <button class="smallBtn" data-act="lb">LEADERBOARD</button>
+            <button class="smallBtn" data-act="del" style="border-color: rgba(255,46,136,.45);">DELETE</button>
+          </div>
+          <div class="m" style="margin-top:8px; display:none;" data-box="lb"></div>
+        `;
+
+        div.querySelector('[data-act="show"]').onclick = () => showSegmentOnMap(s);
+        div.querySelector('[data-act="del"]').onclick = () => deleteSegment(s.id);
+        div.querySelector('[data-act="lb"]').onclick = () => toggleLeaderboard(div, s);
+
+        segmentsList.appendChild(div);
+      });
     }
 
-    // ---------- Storage ----------
-    function loadRides(){
-      try{
-        const raw = localStorage.getItem(STORAGE_KEY);
-        return raw ? JSON.parse(raw) : [];
-      }catch(e){ return []; }
+    function showSegmentOnMap(s){
+      clearMapMarkersOnly();
+      segStartMarker = L.circleMarker([s.start.lat, s.start.lng], { radius: 9, weight: 2, fillOpacity: 0.6 }).addTo(map);
+      segEndMarker = L.circleMarker([s.end.lat, s.end.lng], { radius: 9, weight: 2, fillOpacity: 0.6 }).addTo(map);
+
+      const latlngs = polyline.getLatLngs();
+      const bounds = L.latLngBounds([ [s.start.lat,s.start.lng], [s.end.lat,s.end.lng] ]);
+      if(latlngs.length){
+        bounds.extend(polyline.getBounds());
+      }
+      map.fitBounds(bounds.pad(0.25));
+
+      elPill.textContent = "SEGMENT";
+      elPill.className = "pill good";
     }
-    function saveRides(){
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(rides));
+
+    function toggleLeaderboard(container, s){
+      const box = container.querySelector('[data-box="lb"]');
+      const open = box.style.display !== "none";
+      if(open){
+        box.style.display = "none";
+        return;
+      }
+      const top = (s.attempts||[]).slice().sort((a,b)=>a.timeS-b.timeS).slice(0,10);
+      if(!top.length){
+        box.innerHTML = `<div style="color:rgba(234,240,255,.6); font-size:12px;">No attempts yet.</div>`;
+      }else{
+        box.innerHTML = top.map((a,i)=>(
+          `<div style="display:flex; justify-content:space-between; font-size:12px; margin:4px 0;">
+            <div>${i+1}. ${a.name}</div>
+            <div style="font-weight:900;">${fmtTime(a.timeS)}</div>
+          </div>`
+        )).join("");
+      }
+      box.style.display = "";
+    }
+
+    function deleteSegment(id){
+      segments = segments.filter(s => s.id !== id);
+      saveSegments();
+      renderSegments();
+    }
+
+    function clearMapMarkersOnly(){
+      if(segStartMarker){ map.removeLayer(segStartMarker); segStartMarker=null; }
+      if(segEndMarker){ map.removeLayer(segEndMarker); segEndMarker=null; }
+    }
+
+    // Detect segment attempts when a ride is saved
+    function detectAttemptsForRide(ride){
+      if(!segments.length || !ride.points || ride.points.length < 2) return;
+
+      for(const s of segments){
+        const r = s.radiusM ?? 35;
+
+        let startIdx = -1;
+        let endIdx = -1;
+
+        for(let i=0;i<ride.points.length;i++){
+          const p = ride.points[i];
+          const d = haversineMeters({lat:p.lat,lng:p.lng},{lat:s.start.lat,lng:s.start.lng});
+          if(d <= r){
+            startIdx = i;
+            break;
+          }
+        }
+        if(startIdx < 0) continue;
+
+        for(let j=startIdx+1;j<ride.points.length;j++){
+          const p = ride.points[j];
+          const d = haversineMeters({lat:p.lat,lng:p.lng},{lat:s.end.lat,lng:s.end.lng});
+          if(d <= r){
+            endIdx = j;
+            break;
+          }
+        }
+        if(endIdx < 0) continue;
+
+        const tStart = ride.points[startIdx].t;
+        const tEnd = ride.points[endIdx].t;
+        const timeS = Math.max(1, Math.round((tEnd - tStart)/1000));
+
+        const attempt = {
+          uid: mockUser.uid,
+          name: mockUser.name,
+          timeS,
+          date: Date.now(),
+          rideId: ride.id
+        };
+
+        s.attempts = s.attempts || [];
+        if(!s.attempts.some(a => a.rideId === ride.id)){
+          s.attempts.push(attempt);
+        }
+      }
     }
 
     // ---------- Recording ----------
@@ -450,6 +659,8 @@
       lastPoint = null;
 
       polyline.setLatLngs([]);
+      clearMapMarkersOnly();
+
       elPill.textContent = "RECORDING";
       elPill.className = "pill good";
       elRec.textContent = "REC: ON";
@@ -457,7 +668,6 @@
       btnStart.disabled = true;
       btnStop.disabled = false;
 
-      // UI timer
       if(timerId) clearInterval(timerId);
       timerId = setInterval(() => {
         if(!recording) return;
@@ -469,7 +679,6 @@
         elAvg.textContent = avg.toFixed(0) + " km/h";
       }, 250);
 
-      // Watch position
       watchId = navigator.geolocation.watchPosition(
         onPos,
         (err) => {
@@ -499,7 +708,6 @@
         timerId = null;
       }
 
-      // Save ride if enough points
       const durationS = Math.max(1, Math.round((Date.now() - startTs)/1000));
       if(points.length >= 2){
         const avgKmh = ((distM/1000) / (durationS/3600));
@@ -515,6 +723,11 @@
         rides.push(ride);
         saveRides();
         renderRides();
+
+        // detect segment attempts
+        detectAttemptsForRide(ride);
+        saveSegments();
+        if(activeTab === "segments") renderSegments();
 
         elPill.textContent = "SAVED";
         elPill.className = "pill good";
@@ -534,27 +747,22 @@
         spd: c.speed ?? null // m/s
       };
 
-      // Accuracy / status
       const acc = typeof p.acc === "number" ? p.acc : null;
-      elAcc.textContent = "ACC: " + (acc ? (Math.round(acc) + "m") : "—");
-      elGps.textContent = "GPS: " + (acc ? ("±" + Math.round(acc) + "m") : "—");
+      document.getElementById("pillAcc").textContent = "ACC: " + (acc ? (Math.round(acc) + "m") : "—");
+      document.getElementById("gpsLabel").textContent = "GPS: " + (acc ? ("±" + Math.round(acc) + "m") : "—");
 
-      // Distance
       if(lastPoint){
         const d = haversineMeters({lat:lastPoint.lat,lng:lastPoint.lng},{lat:p.lat,lng:p.lng});
-        // Drop insane jumps (basic anti-glitch)
         if(d < 250) distM += d;
       }
       lastPoint = p;
 
       points.push(p);
 
-      // Speed
       let kmh = 0;
       if(typeof p.spd === "number" && !Number.isNaN(p.spd)){
         kmh = p.spd * 3.6;
       } else if(points.length >= 2){
-        // fallback: derive speed from last two points
         const a = points[points.length-2];
         const b = points[points.length-1];
         const dt = Math.max(0.5, (b.t - a.t)/1000);
@@ -569,9 +777,16 @@
         elSpeedMax.textContent = String(Math.round(maxKmh));
       }
 
-      // Draw
       polyline.addLatLng([p.lat, p.lng]);
       setMarker(p.lat, p.lng);
+    }
+
+    function setMarker(lat,lng){
+      if(!marker){
+        marker = L.circleMarker([lat,lng], { radius: 8, weight: 2, opacity: 0.9, fillOpacity: 0.6 }).addTo(map);
+      } else {
+        marker.setLatLng([lat,lng]);
+      }
     }
 
     // ---------- Buttons ----------
@@ -586,6 +801,7 @@
     btnClear.onclick = () => {
       polyline.setLatLngs([]);
       if(marker){ map.removeLayer(marker); marker = null; }
+      clearMapMarkersOnly();
       elPill.textContent = "READY";
       elPill.className = "pill good";
       elSpeedNow.textContent = "0";
@@ -596,9 +812,75 @@
       elPts.textContent = "0";
     };
 
-    // Initial render
+    // ---------- Segment creation ----------
+    tabRides.onclick = () => setTab("rides");
+    tabSegments.onclick = () => setTab("segments");
+
+    btnCreateSegment.onclick = () => {
+      creatingSegment = true;
+      createStage = 1;
+      segStart = null;
+      segEnd = null;
+      clearMapMarkersOnly();
+      segmentHint.textContent = "Click START point on the map…";
+    };
+
+    btnCancelSegment.onclick = () => {
+      creatingSegment = false;
+      createStage = 0;
+      segStart = null;
+      segEnd = null;
+      clearMapMarkersOnly();
+      segmentHint.textContent = "Tip: CREATE SEGMENT → click Start en el mapa → click End en el mapa.";
+    };
+
+    map.on("click", (e) => {
+      if(!creatingSegment) return;
+
+      if(createStage === 1){
+        segStart = { lat: e.latlng.lat, lng: e.latlng.lng };
+        if(segStartMarker) map.removeLayer(segStartMarker);
+        segStartMarker = L.circleMarker([segStart.lat, segStart.lng], { radius: 10, weight: 2, fillOpacity: 0.65 }).addTo(map);
+        createStage = 2;
+        segmentHint.textContent = "Now click END point on the map…";
+        return;
+      }
+
+      if(createStage === 2){
+        segEnd = { lat: e.latlng.lat, lng: e.latlng.lng };
+        if(segEndMarker) map.removeLayer(segEndMarker);
+        segEndMarker = L.circleMarker([segEnd.lat, segEnd.lng], { radius: 10, weight: 2, fillOpacity: 0.65 }).addTo(map);
+
+        const name = prompt("Segment name:", "MY SEGMENT") || "MY SEGMENT";
+        const radiusM = 35;
+
+        const seg = {
+          id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
+          name: name.toUpperCase(),
+          vehicleType: "both",
+          radiusM,
+          start: segStart,
+          end: segEnd,
+          attempts: []
+        };
+
+        segments.push(seg);
+        saveSegments();
+        renderSegments();
+
+        creatingSegment = false;
+        createStage = 0;
+        segmentHint.textContent = "Segment saved. Record a ride to generate attempts.";
+
+        elPill.textContent = "SEGMENT SAVED";
+        elPill.className = "pill good";
+      }
+    });
+
+    // ---------- Init ----------
     renderRides();
+    renderSegments();
+    setTab("rides");
   </script>
 </body>
 </html>
-
