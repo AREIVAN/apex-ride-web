@@ -471,6 +471,54 @@
       const s = Math.floor(sec % 60);
       return String(m).padStart(2, '0') + ":" + String(s).padStart(2, '0');
     }
+    // Decode polyline (OSRM returns polyline6 by default if requested; we will request geojson to avoid decoding)
+    // Distance from point to segment (approx, in meters) using equirectangular projection
+    function pointToSegmentDistanceMeters(p, a, b) {
+      // project lat/lng to meters around latitude p.lat
+      const R = 6371000;
+      const lat = toRad(p.lat);
+      const x = (lng) => R * toRad(lng) * Math.cos(lat);
+      const y = (latd) => R * toRad(latd);
+
+      const px = x(p.lng), py = y(p.lat);
+      const ax = x(a.lng), ay = y(a.lat);
+      const bx = x(b.lng), by = y(b.lat);
+
+      const abx = bx - ax, aby = by - ay;
+      const apx = px - ax, apy = py - ay;
+
+      const ab2 = abx * abx + aby * aby;
+      const t = ab2 === 0 ? 0 : clamp((apx * abx + apy * aby) / ab2, 0, 1);
+      const cx = ax + t * abx, cy = ay + t * aby;
+
+      const dx = px - cx, dy = py - cy;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function distancePointToPolylineMeters(p, poly) {
+      // poly: [{lat,lng}, ...]
+      if (!poly || poly.length < 2) return Infinity;
+      let best = Infinity;
+      for (let i = 0; i < poly.length - 1; i++) {
+        const d = pointToSegmentDistanceMeters(p, poly[i], poly[i + 1]);
+        if (d < best) best = d;
+      }
+      return best;
+    }
+
+    // OSRM routing (returns geojson line that follows roads)
+    async function osrmRoute(start, end) {
+      // OSRM expects lon,lat
+      const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson&steps=false`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("OSRM request failed");
+      const data = await res.json();
+      if (!data.routes || !data.routes.length) throw new Error("No route");
+      const route = data.routes[0];
+      // GeoJSON coords: [lon,lat]
+      const coords = route.geometry.coordinates.map(([lon, lat]) => ({ lat, lng: lon }));
+      return { coords, distanceM: route.distance, durationS: route.duration };
+    }
     function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
 
     // ---------- State ----------
@@ -512,6 +560,7 @@
     }).addTo(map);
 
     polyline = L.polyline([], { weight: 4, opacity: 0.95 }).addTo(map);
+    let segmentLine = L.polyline([], { weight: 6, opacity: 0.85 }).addTo(map);
 
     // ---------- UI refs ----------
     const elSpeedNow = document.getElementById("speedNow");
@@ -652,6 +701,11 @@
     }
 
     function showSegmentOnMap(s) {
+      if (s.route && s.route.length) {
+        segmentLine.setLatLngs(s.route.map(c => [c.lat, c.lng]));
+      } else {
+        segmentLine.setLatLngs([]);
+      }
       clearMapMarkersOnly();
       segStartMarker = L.circleMarker([s.start.lat, s.start.lng], { radius: 9, weight: 2, fillOpacity: 0.6 }).addTo(map);
       segEndMarker = L.circleMarker([s.end.lat, s.end.lng], { radius: 9, weight: 2, fillOpacity: 0.6 }).addTo(map);
@@ -704,31 +758,49 @@
       if (!segments.length || !ride.points || ride.points.length < 2) return;
 
       for (const s of segments) {
-        const r = s.radiusM ?? 35;
+        const r = s.radiusM ?? 25;
 
+        // Need a street route polyline to validate
+        if (!s.route || s.route.length < 2) continue;
+
+        // 1) Find first point near start
         let startIdx = -1;
-        let endIdx = -1;
-
         for (let i = 0; i < ride.points.length; i++) {
           const p = ride.points[i];
-          const d = haversineMeters({ lat: p.lat, lng: p.lng }, { lat: s.start.lat, lng: s.start.lng });
-          if (d <= r) {
+          const dStart = haversineMeters({ lat: p.lat, lng: p.lng }, { lat: s.start.lat, lng: s.start.lng });
+          if (dStart <= Math.max(40, r * 2)) {
             startIdx = i;
             break;
           }
         }
         if (startIdx < 0) continue;
 
+        // 2) From that point onwards, find end gate
+        let endIdx = -1;
         for (let j = startIdx + 1; j < ride.points.length; j++) {
           const p = ride.points[j];
-          const d = haversineMeters({ lat: p.lat, lng: p.lng }, { lat: s.end.lat, lng: s.end.lng });
-          if (d <= r) {
+          const dEnd = haversineMeters({ lat: p.lat, lng: p.lng }, { lat: s.end.lat, lng: s.end.lng });
+          if (dEnd <= Math.max(40, r * 2)) {
             endIdx = j;
             break;
           }
         }
         if (endIdx < 0) continue;
 
+        // 3) Validate "followed the street route"
+        // Compute % of points between startIdx..endIdx that are within r meters of the route polyline
+        const window = ride.points.slice(startIdx, endIdx + 1);
+        let ok = 0;
+        for (const p of window) {
+          const d = distancePointToPolylineMeters({ lat: p.lat, lng: p.lng }, s.route);
+          if (d <= r) ok++;
+        }
+        const ratio = ok / Math.max(1, window.length);
+
+        // Require at least 60% on-route for MVP
+        if (ratio < 0.60) continue;
+
+        // Attempt time
         const tStart = ride.points[startIdx].t;
         const tEnd = ride.points[endIdx].t;
         const timeS = Math.max(1, Math.round((tEnd - tStart) / 1000));
@@ -738,7 +810,8 @@
           name: mockUser.name,
           timeS,
           date: Date.now(),
-          rideId: ride.id
+          rideId: ride.id,
+          onRoute: Math.round(ratio * 100)
         };
 
         s.attempts = s.attempts || [];
@@ -902,6 +975,7 @@
     };
 
     btnClear.onclick = () => {
+      segmentLine.setLatLngs([]);
       polyline.setLatLngs([]);
       if (marker) { map.removeLayer(marker); marker = null; }
       clearMapMarkersOnly();
@@ -937,7 +1011,7 @@
       segmentHint.textContent = "Tip: CREATE SEGMENT → click Start en el mapa → click End en el mapa.";
     };
 
-    map.on("click", (e) => {
+    map.on("click", async (e) => {
       if (!creatingSegment) return;
 
       if (createStage === 1) {
@@ -954,29 +1028,49 @@
         if (segEndMarker) map.removeLayer(segEndMarker);
         segEndMarker = L.circleMarker([segEnd.lat, segEnd.lng], { radius: 10, weight: 2, fillOpacity: 0.65 }).addTo(map);
 
-        const name = prompt("Segment name:", "MY SEGMENT") || "MY SEGMENT";
-        const radiusM = 35;
+        try {
+          segmentHint.textContent = "Routing via streets… (OSRM)";
+          elPill.textContent = "ROUTING…";
+          elPill.className = "pill good";
 
-        const seg = {
-          id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
-          name: name.toUpperCase(),
-          vehicleType: "both",
-          radiusM,
-          start: segStart,
-          end: segEnd,
-          attempts: []
-        };
+          const name = prompt("Segment name:", "MY STREET SEGMENT") || "MY STREET SEGMENT";
+          const radiusM = 25; // tighter now that we have a street polyline
 
-        segments.push(seg);
-        saveSegments();
-        renderSegments();
+          const routed = await osrmRoute(segStart, segEnd);
 
-        creatingSegment = false;
-        createStage = 0;
-        segmentHint.textContent = "Segment saved. Record a ride to generate attempts.";
+          // Draw route line on map
+          segmentLine.setLatLngs(routed.coords.map(c => [c.lat, c.lng]));
+          map.fitBounds(segmentLine.getBounds().pad(0.25));
 
-        elPill.textContent = "SEGMENT SAVED";
-        elPill.className = "pill good";
+          const seg = {
+            id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
+            name: name.toUpperCase(),
+            vehicleType: "both",
+            radiusM,
+            start: segStart,
+            end: segEnd,
+            // Street-following polyline
+            route: routed.coords,
+            routeDistanceM: routed.distanceM,
+            attempts: []
+          };
+
+          segments.push(seg);
+          saveSegments();
+          renderSegments();
+
+          creatingSegment = false;
+          createStage = 0;
+
+          segmentHint.textContent = `Segment saved with street route. Dist ${(routed.distanceM / 1000).toFixed(2)} km.`;
+          elPill.textContent = "SEGMENT SAVED";
+          elPill.className = "pill good";
+        } catch (err) {
+          console.error(err);
+          segmentHint.textContent = "Routing failed. Try another start/end or check connection.";
+          elPill.textContent = "ROUTE FAILED";
+          elPill.className = "pill bad";
+        }
       }
     });
 
