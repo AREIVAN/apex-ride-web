@@ -1,248 +1,350 @@
 <!doctype html>
 <html lang="es">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>APEX RIDE — Web Prototype</title>
 
   <!-- Leaflet (Map) -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
   <style>
-    :root{
-      --bg:#070A10;
-      --panel:#0B1020;
-      --panel2:#0C142A;
-      --stroke:rgba(122,63,255,.55);
-      --neon:#7A3FFF;
-      --neon2:#2FE6FF;
-      --hot:#FF2E88;
-      --text:#EAF0FF;
-      --muted:rgba(234,240,255,.65);
-      --good:#2FE6FF;
-      --warn:#FFB020;
-      --bad:#FF2E88;
-      --r:16px;
-      --shadow: 0 0 24px rgba(122,63,255,.18), 0 0 18px rgba(47,230,255,.10);
+    :root {
+      --bg: #070A10;
+      --panel: #0B1020;
+      --panel2: #0C142A;
+      --stroke: rgba(122, 63, 255, .55);
+      --neon: #7A3FFF;
+      --neon2: #2FE6FF;
+      --hot: #FF2E88;
+      --text: #EAF0FF;
+      --muted: rgba(234, 240, 255, .65);
+      --good: #2FE6FF;
+      --warn: #FFB020;
+      --bad: #FF2E88;
+      --r: 16px;
+      --shadow: 0 0 24px rgba(122, 63, 255, .18), 0 0 18px rgba(47, 230, 255, .10);
     }
-    *{box-sizing:border-box}
-    body{
-      margin:0;
+
+    * {
+      box-sizing: border-box
+    }
+
+    body {
+      margin: 0;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
-      color:var(--text);
-      background: radial-gradient(1200px 800px at 15% 20%, rgba(122,63,255,.14), transparent 60%),
-                  radial-gradient(900px 600px at 80% 10%, rgba(47,230,255,.12), transparent 55%),
-                  radial-gradient(1000px 700px at 60% 90%, rgba(255,46,136,.10), transparent 55%),
-                  var(--bg);
+      color: var(--text);
+      background: radial-gradient(1200px 800px at 15% 20%, rgba(122, 63, 255, .14), transparent 60%),
+        radial-gradient(900px 600px at 80% 10%, rgba(47, 230, 255, .12), transparent 55%),
+        radial-gradient(1000px 700px at 60% 90%, rgba(255, 46, 136, .10), transparent 55%),
+        var(--bg);
     }
-    .app{
-      display:grid;
+
+    .app {
+      display: grid;
       grid-template-columns: 380px 1fr;
-      min-height:100vh;
-      gap:16px;
-      padding:16px;
+      min-height: 100vh;
+      gap: 16px;
+      padding: 16px;
     }
-    @media (max-width: 980px){
-      .app{grid-template-columns: 1fr; grid-template-rows:auto 1fr}
+
+    @media (max-width: 980px) {
+      .app {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr
+      }
     }
-    .panel{
-      background: linear-gradient(180deg, rgba(11,16,32,.92), rgba(12,20,42,.86));
-      border:1px solid rgba(122,63,255,.25);
+
+    .panel {
+      background: linear-gradient(180deg, rgba(11, 16, 32, .92), rgba(12, 20, 42, .86));
+      border: 1px solid rgba(122, 63, 255, .25);
       border-radius: var(--r);
       box-shadow: var(--shadow);
-      overflow:hidden;
+      overflow: hidden;
     }
-    .left{
-      display:flex;
-      flex-direction:column;
-      gap:12px;
+
+    .left {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
-    .topbar{
-      padding:14px 16px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      border-bottom:1px solid rgba(122,63,255,.18);
-      background: rgba(6,10,18,.55);
+
+    .topbar {
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(122, 63, 255, .18);
+      background: rgba(6, 10, 18, .55);
     }
-    .brand{
-      display:flex; gap:10px; align-items:center;
-      letter-spacing:.12em;
-      font-weight:800;
+
+    .brand {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      letter-spacing: .12em;
+      font-weight: 800;
     }
-    .logo{
-      width:34px; height:34px;
+
+    .logo {
+      width: 34px;
+      height: 34px;
       border-radius: 10px;
-      background: linear-gradient(135deg, rgba(122,63,255,.9), rgba(47,230,255,.7));
-      box-shadow: 0 0 18px rgba(122,63,255,.25), 0 0 12px rgba(47,230,255,.18);
-      display:grid; place-items:center;
-      font-weight:900;
+      background: linear-gradient(135deg, rgba(122, 63, 255, .9), rgba(47, 230, 255, .7));
+      box-shadow: 0 0 18px rgba(122, 63, 255, .25), 0 0 12px rgba(47, 230, 255, .18);
+      display: grid;
+      place-items: center;
+      font-weight: 900;
     }
-    .chip{
-      border:1px solid rgba(47,230,255,.35);
-      padding:6px 10px;
-      border-radius:999px;
-      color:var(--neon2);
-      font-weight:700;
-      font-size:12px;
-      background: rgba(47,230,255,.06);
+
+    .chip {
+      border: 1px solid rgba(47, 230, 255, .35);
+      padding: 6px 10px;
+      border-radius: 999px;
+      color: var(--neon2);
+      font-weight: 700;
+      font-size: 12px;
+      background: rgba(47, 230, 255, .06);
     }
-    .hud{
-      padding:16px;
-      display:grid;
-      gap:12px;
+
+    .hud {
+      padding: 16px;
+      display: grid;
+      gap: 12px;
     }
-    .speedCard{
-      padding:16px;
+
+    .speedCard {
+      padding: 16px;
       border-radius: var(--r);
-      border:1px solid rgba(122,63,255,.22);
-      background: linear-gradient(180deg, rgba(7,10,16,.55), rgba(8,12,22,.35));
-      position:relative;
-      overflow:hidden;
+      border: 1px solid rgba(122, 63, 255, .22);
+      background: linear-gradient(180deg, rgba(7, 10, 16, .55), rgba(8, 12, 22, .35));
+      position: relative;
+      overflow: hidden;
     }
-    .speedCard:before{
-      content:"";
-      position:absolute; inset:-2px;
-      background: radial-gradient(600px 120px at 20% 10%, rgba(47,230,255,.12), transparent 60%),
-                  radial-gradient(500px 200px at 90% 10%, rgba(122,63,255,.16), transparent 55%),
-                  radial-gradient(700px 200px at 50% 120%, rgba(255,46,136,.10), transparent 60%);
-      pointer-events:none;
+
+    .speedCard:before {
+      content: "";
+      position: absolute;
+      inset: -2px;
+      background: radial-gradient(600px 120px at 20% 10%, rgba(47, 230, 255, .12), transparent 60%),
+        radial-gradient(500px 200px at 90% 10%, rgba(122, 63, 255, .16), transparent 55%),
+        radial-gradient(700px 200px at 50% 120%, rgba(255, 46, 136, .10), transparent 60%);
+      pointer-events: none;
     }
-    .row{display:flex; align-items:center; justify-content:space-between; gap:10px; position:relative}
-    .label{font-size:12px; color:var(--muted); letter-spacing:.08em; text-transform:uppercase}
-    .valueBig{
-      font-size:64px;
-      font-weight:900;
-      line-height:1;
-      letter-spacing:-.02em;
-      text-shadow: 0 0 18px rgba(47,230,255,.15);
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      position: relative
     }
-    .unit{
-      font-size:16px; font-weight:800; color:var(--muted); letter-spacing:.18em;
-      margin-left:8px;
+
+    .label {
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: .08em;
+      text-transform: uppercase
     }
-    .kpis{
-      display:grid;
+
+    .valueBig {
+      font-size: 64px;
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: -.02em;
+      text-shadow: 0 0 18px rgba(47, 230, 255, .15);
+    }
+
+    .unit {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--muted);
+      letter-spacing: .18em;
+      margin-left: 8px;
+    }
+
+    .kpis {
+      display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap:10px;
+      gap: 10px;
     }
-    .kpi{
-      padding:10px 12px;
+
+    .kpi {
+      padding: 10px 12px;
       border-radius: 14px;
-      border:1px solid rgba(122,63,255,.18);
-      background: rgba(6,10,18,.35);
+      border: 1px solid rgba(122, 63, 255, .18);
+      background: rgba(6, 10, 18, .35);
     }
-    .kpi .k{font-size:11px; color:var(--muted); letter-spacing:.10em; text-transform:uppercase}
-    .kpi .v{margin-top:6px; font-size:16px; font-weight:800}
-    .actions{
-      display:grid;
+
+    .kpi .k {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: .10em;
+      text-transform: uppercase
+    }
+
+    .kpi .v {
+      margin-top: 6px;
+      font-size: 16px;
+      font-weight: 800
+    }
+
+    .actions {
+      display: grid;
       grid-template-columns: 1fr 1fr;
-      gap:10px;
+      gap: 10px;
     }
-    button{
-      appearance:none;
-      border:1px solid rgba(122,63,255,.40);
-      background: linear-gradient(180deg, rgba(122,63,255,.18), rgba(122,63,255,.06));
-      color:var(--text);
-      padding:12px 12px;
+
+    button {
+      appearance: none;
+      border: 1px solid rgba(122, 63, 255, .40);
+      background: linear-gradient(180deg, rgba(122, 63, 255, .18), rgba(122, 63, 255, .06));
+      color: var(--text);
+      padding: 12px 12px;
       border-radius: 14px;
-      font-weight:800;
-      cursor:pointer;
-      box-shadow: 0 0 18px rgba(122,63,255,.12);
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 0 18px rgba(122, 63, 255, .12);
       transition: transform .06s ease, border-color .12s ease;
-      letter-spacing:.06em;
-      text-transform:uppercase;
-      font-size:12px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      font-size: 12px;
     }
-    button:hover{border-color: rgba(47,230,255,.55)}
-    button:active{transform: translateY(1px)}
-    button.primary{
-      border-color: rgba(47,230,255,.55);
-      background: linear-gradient(180deg, rgba(47,230,255,.18), rgba(47,230,255,.05));
-    }
-    button.danger{
-      border-color: rgba(255,46,136,.60);
-      background: linear-gradient(180deg, rgba(255,46,136,.18), rgba(255,46,136,.05));
-    }
-    button:disabled{opacity:.5; cursor:not-allowed}
 
-    .statusLine{
-      display:flex; gap:10px; flex-wrap:wrap;
-      padding:0 16px 12px 16px;
-      color:var(--muted);
-      font-size:12px;
+    button:hover {
+      border-color: rgba(47, 230, 255, .55)
     }
-    .pill{
-      padding:6px 10px;
-      border-radius:999px;
-      border:1px solid rgba(122,63,255,.20);
-      background: rgba(6,10,18,.35);
+
+    button:active {
+      transform: translateY(1px)
     }
-    .pill.good{border-color: rgba(47,230,255,.35); color: var(--neon2)}
-    .pill.bad{border-color: rgba(255,46,136,.45); color: var(--hot)}
-    .list{
-      padding:14px 16px 16px 16px;
-      border-top:1px solid rgba(122,63,255,.18);
+
+    button.primary {
+      border-color: rgba(47, 230, 255, .55);
+      background: linear-gradient(180deg, rgba(47, 230, 255, .18), rgba(47, 230, 255, .05));
+    }
+
+    button.danger {
+      border-color: rgba(255, 46, 136, .60);
+      background: linear-gradient(180deg, rgba(255, 46, 136, .18), rgba(255, 46, 136, .05));
+    }
+
+    button:disabled {
+      opacity: .5;
+      cursor: not-allowed
+    }
+
+    .statusLine {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 0 16px 12px 16px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .pill {
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(122, 63, 255, .20);
+      background: rgba(6, 10, 18, .35);
+    }
+
+    .pill.good {
+      border-color: rgba(47, 230, 255, .35);
+      color: var(--neon2)
+    }
+
+    .pill.bad {
+      border-color: rgba(255, 46, 136, .45);
+      color: var(--hot)
+    }
+
+    .list {
+      padding: 14px 16px 16px 16px;
+      border-top: 1px solid rgba(122, 63, 255, .18);
       max-height: 380px;
-      overflow:auto;
+      overflow: auto;
     }
-    .list h3{
-      margin:0 0 10px 0;
-      font-size:12px;
-      letter-spacing:.14em;
-      text-transform:uppercase;
-      color:var(--muted);
-    }
-    .rideItem{
-      padding:12px;
-      border-radius:14px;
-      border:1px solid rgba(122,63,255,.18);
-      background: rgba(6,10,18,.28);
-      display:grid;
-      gap:6px;
-      margin-bottom:10px;
-      cursor:pointer;
-    }
-    .rideItem:hover{border-color: rgba(47,230,255,.45)}
-    .rideItem .t{font-weight:900}
-    .rideItem .m{color:var(--muted); font-size:12px}
 
-    #map{
-      width:100%;
+    .list h3 {
+      margin: 0 0 10px 0;
+      font-size: 12px;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .rideItem {
+      padding: 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(122, 63, 255, .18);
+      background: rgba(6, 10, 18, .28);
+      display: grid;
+      gap: 6px;
+      margin-bottom: 10px;
+      cursor: pointer;
+    }
+
+    .rideItem:hover {
+      border-color: rgba(47, 230, 255, .45)
+    }
+
+    .rideItem .t {
+      font-weight: 900
+    }
+
+    .rideItem .m {
+      color: var(--muted);
+      font-size: 12px
+    }
+
+    #map {
+      width: 100%;
       height: calc(100vh - 32px);
       min-height: 520px;
       border-radius: var(--r);
-      border:1px solid rgba(122,63,255,.25);
+      border: 1px solid rgba(122, 63, 255, .25);
       box-shadow: var(--shadow);
-      overflow:hidden;
+      overflow: hidden;
     }
-    .mapWrap{position:relative}
-    .mapOverlay{
-      position:absolute;
-      top:14px; left:14px;
-      display:flex; gap:8px; flex-wrap:wrap;
+
+    .mapWrap {
+      position: relative
+    }
+
+    .mapOverlay {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
       z-index: 1000;
     }
-    .badge{
-      padding:8px 10px;
-      border-radius:999px;
-      border:1px solid rgba(47,230,255,.35);
-      background: rgba(6,10,18,.55);
-      font-size:12px;
+
+    .badge {
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(47, 230, 255, .35);
+      background: rgba(6, 10, 18, .55);
+      font-size: 12px;
       color: var(--neon2);
-      box-shadow: 0 0 14px rgba(47,230,255,.10);
+      box-shadow: 0 0 14px rgba(47, 230, 255, .10);
       backdrop-filter: blur(6px);
     }
 
     .smallBtn {
-      padding:8px 10px;
-      border-radius:12px;
-      font-size:11px;
+      padding: 8px 10px;
+      border-radius: 12px;
+      font-size: 11px;
     }
-    hr.soft{
-      border:none;
-      border-top:1px solid rgba(122,63,255,.18);
-      margin:10px 0;
+
+    hr.soft {
+      border: none;
+      border-top: 1px solid rgba(122, 63, 255, .18);
+      margin: 10px 0;
     }
   </style>
 </head>
@@ -273,7 +375,8 @@
             </div>
             <div class="row" style="margin-top:10px;">
               <div class="label">MAX</div>
-              <div style="font-weight:900;"><span id="speedMax">0</span> <span style="color:var(--muted); font-weight:800;">KM/H</span></div>
+              <div style="font-weight:900;"><span id="speedMax">0</span> <span
+                  style="color:var(--muted); font-weight:800;">KM/H</span></div>
             </div>
           </div>
 
@@ -354,21 +457,21 @@
 
   <script>
     // ---------- Utilities ----------
-    function toRad(x){ return x * Math.PI / 180; }
-    function haversineMeters(a,b){
+    function toRad(x) { return x * Math.PI / 180; }
+    function haversineMeters(a, b) {
       const R = 6371000;
       const dLat = toRad(b.lat - a.lat);
       const dLon = toRad(b.lng - a.lng);
       const lat1 = toRad(a.lat), lat2 = toRad(b.lat);
-      const s = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
+      const s = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
       return 2 * R * Math.asin(Math.sqrt(s));
     }
-    function fmtTime(sec){
-      const m = Math.floor(sec/60);
-      const s = Math.floor(sec%60);
-      return String(m).padStart(2,'0') + ":" + String(s).padStart(2,'0');
+    function fmtTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      return String(m).padStart(2, '0') + ":" + String(s).padStart(2, '0');
     }
-    function clamp(n,min,max){ return Math.max(min, Math.min(max,n)); }
+    function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
 
     // ---------- State ----------
     const STORAGE_KEY = "apex_ride_web_rides_v1";
@@ -439,34 +542,34 @@
     const segmentsList = document.getElementById("segmentsList");
 
     // ---------- Storage ----------
-    function loadRides(){
-      try{
+    function loadRides() {
+      try {
         const raw = localStorage.getItem(STORAGE_KEY);
         return raw ? JSON.parse(raw) : [];
-      }catch(e){ return []; }
+      } catch (e) { return []; }
     }
-    function saveRides(){
+    function saveRides() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(rides));
     }
-    function loadSegments(){
-      try{
+    function loadSegments() {
+      try {
         const raw = localStorage.getItem(SEGMENTS_KEY);
         return raw ? JSON.parse(raw) : [];
-      }catch(e){ return []; }
+      } catch (e) { return []; }
     }
-    function saveSegments(){
+    function saveSegments() {
       localStorage.setItem(SEGMENTS_KEY, JSON.stringify(segments));
     }
 
     // ---------- Tabs ----------
-    function setTab(tab){
+    function setTab(tab) {
       activeTab = tab;
-      if(tab === "rides"){
+      if (tab === "rides") {
         panelRides.style.display = "";
         panelSegments.style.display = "none";
         tabRides.classList.add("primary");
         tabSegments.classList.remove("primary");
-      }else{
+      } else {
         panelRides.style.display = "none";
         panelSegments.style.display = "";
         tabSegments.classList.add("primary");
@@ -476,9 +579,9 @@
     }
 
     // ---------- Render rides list ----------
-    function renderRides(){
+    function renderRides() {
       ridesList.innerHTML = "";
-      if(!rides.length){
+      if (!rides.length) {
         ridesList.innerHTML = `<div style="color:rgba(234,240,255,.6); font-size:12px;">No rides yet. Record one.</div>`;
         return;
       }
@@ -487,25 +590,25 @@
         div.className = "rideItem";
         div.innerHTML = `
           <div class="t">${new Date(r.startedAt).toLocaleString()}</div>
-          <div class="m">Dist: ${(r.distanceM/1000).toFixed(2)} km • Time: ${fmtTime(r.durationS)} • Max: ${Math.round(r.maxKmh)} km/h</div>
+          <div class="m">Dist: ${(r.distanceM / 1000).toFixed(2)} km • Time: ${fmtTime(r.durationS)} • Max: ${Math.round(r.maxKmh)} km/h</div>
         `;
         div.onclick = () => showRide(r);
         ridesList.appendChild(div);
       });
     }
 
-    function showRide(r){
+    function showRide(r) {
       clearMapMarkersOnly();
       const latlngs = r.points.map(p => [p.lat, p.lng]);
       polyline.setLatLngs(latlngs);
-      if(latlngs.length){
+      if (latlngs.length) {
         map.fitBounds(polyline.getBounds().pad(0.2));
-        setMarker(latlngs[latlngs.length-1][0], latlngs[latlngs.length-1][1]);
+        setMarker(latlngs[latlngs.length - 1][0], latlngs[latlngs.length - 1][1]);
       }
       elSpeedNow.textContent = "0";
       elSpeedMax.textContent = String(Math.round(r.maxKmh));
       elTime.textContent = fmtTime(r.durationS);
-      elDist.textContent = (r.distanceM/1000).toFixed(2) + " km";
+      elDist.textContent = (r.distanceM / 1000).toFixed(2) + " km";
       elAvg.textContent = (r.avgKmh).toFixed(0) + " km/h";
       elPts.textContent = String(r.points.length);
       elPill.textContent = "VIEWING";
@@ -514,23 +617,23 @@
     }
 
     // ---------- Segments ----------
-    function renderSegments(){
+    function renderSegments() {
       segmentsList.innerHTML = "";
-      if(!segments.length){
+      if (!segments.length) {
         segmentsList.innerHTML = `<div style="color:rgba(234,240,255,.6); font-size:12px;">No segments yet. Create one.</div>`;
         return;
       }
 
       segments.slice().reverse().forEach((s) => {
         const best = (s.attempts && s.attempts.length)
-          ? s.attempts.slice().sort((a,b)=>a.timeS-b.timeS)[0]
+          ? s.attempts.slice().sort((a, b) => a.timeS - b.timeS)[0]
           : null;
 
         const div = document.createElement("div");
         div.className = "rideItem";
         div.innerHTML = `
           <div class="t">${s.name}</div>
-          <div class="m">Radius: ${s.radiusM}m • Attempts: ${(s.attempts?.length||0)} • PB: ${best ? fmtTime(best.timeS) : "—"}</div>
+          <div class="m">Radius: ${s.radiusM}m • Attempts: ${(s.attempts?.length || 0)} • PB: ${best ? fmtTime(best.timeS) : "—"}</div>
           <hr class="soft"/>
           <div style="display:flex; gap:8px;">
             <button class="smallBtn" data-act="show">SHOW</button>
@@ -548,14 +651,14 @@
       });
     }
 
-    function showSegmentOnMap(s){
+    function showSegmentOnMap(s) {
       clearMapMarkersOnly();
       segStartMarker = L.circleMarker([s.start.lat, s.start.lng], { radius: 9, weight: 2, fillOpacity: 0.6 }).addTo(map);
       segEndMarker = L.circleMarker([s.end.lat, s.end.lng], { radius: 9, weight: 2, fillOpacity: 0.6 }).addTo(map);
 
       const latlngs = polyline.getLatLngs();
-      const bounds = L.latLngBounds([ [s.start.lat,s.start.lng], [s.end.lat,s.end.lng] ]);
-      if(latlngs.length){
+      const bounds = L.latLngBounds([[s.start.lat, s.start.lng], [s.end.lat, s.end.lng]]);
+      if (latlngs.length) {
         bounds.extend(polyline.getBounds());
       }
       map.fitBounds(bounds.pad(0.25));
@@ -564,20 +667,20 @@
       elPill.className = "pill good";
     }
 
-    function toggleLeaderboard(container, s){
+    function toggleLeaderboard(container, s) {
       const box = container.querySelector('[data-box="lb"]');
       const open = box.style.display !== "none";
-      if(open){
+      if (open) {
         box.style.display = "none";
         return;
       }
-      const top = (s.attempts||[]).slice().sort((a,b)=>a.timeS-b.timeS).slice(0,10);
-      if(!top.length){
+      const top = (s.attempts || []).slice().sort((a, b) => a.timeS - b.timeS).slice(0, 10);
+      if (!top.length) {
         box.innerHTML = `<div style="color:rgba(234,240,255,.6); font-size:12px;">No attempts yet.</div>`;
-      }else{
-        box.innerHTML = top.map((a,i)=>(
+      } else {
+        box.innerHTML = top.map((a, i) => (
           `<div style="display:flex; justify-content:space-between; font-size:12px; margin:4px 0;">
-            <div>${i+1}. ${a.name}</div>
+            <div>${i + 1}. ${a.name}</div>
             <div style="font-weight:900;">${fmtTime(a.timeS)}</div>
           </div>`
         )).join("");
@@ -585,50 +688,50 @@
       box.style.display = "";
     }
 
-    function deleteSegment(id){
+    function deleteSegment(id) {
       segments = segments.filter(s => s.id !== id);
       saveSegments();
       renderSegments();
     }
 
-    function clearMapMarkersOnly(){
-      if(segStartMarker){ map.removeLayer(segStartMarker); segStartMarker=null; }
-      if(segEndMarker){ map.removeLayer(segEndMarker); segEndMarker=null; }
+    function clearMapMarkersOnly() {
+      if (segStartMarker) { map.removeLayer(segStartMarker); segStartMarker = null; }
+      if (segEndMarker) { map.removeLayer(segEndMarker); segEndMarker = null; }
     }
 
     // Detect segment attempts when a ride is saved
-    function detectAttemptsForRide(ride){
-      if(!segments.length || !ride.points || ride.points.length < 2) return;
+    function detectAttemptsForRide(ride) {
+      if (!segments.length || !ride.points || ride.points.length < 2) return;
 
-      for(const s of segments){
+      for (const s of segments) {
         const r = s.radiusM ?? 35;
 
         let startIdx = -1;
         let endIdx = -1;
 
-        for(let i=0;i<ride.points.length;i++){
+        for (let i = 0; i < ride.points.length; i++) {
           const p = ride.points[i];
-          const d = haversineMeters({lat:p.lat,lng:p.lng},{lat:s.start.lat,lng:s.start.lng});
-          if(d <= r){
+          const d = haversineMeters({ lat: p.lat, lng: p.lng }, { lat: s.start.lat, lng: s.start.lng });
+          if (d <= r) {
             startIdx = i;
             break;
           }
         }
-        if(startIdx < 0) continue;
+        if (startIdx < 0) continue;
 
-        for(let j=startIdx+1;j<ride.points.length;j++){
+        for (let j = startIdx + 1; j < ride.points.length; j++) {
           const p = ride.points[j];
-          const d = haversineMeters({lat:p.lat,lng:p.lng},{lat:s.end.lat,lng:s.end.lng});
-          if(d <= r){
+          const d = haversineMeters({ lat: p.lat, lng: p.lng }, { lat: s.end.lat, lng: s.end.lng });
+          if (d <= r) {
             endIdx = j;
             break;
           }
         }
-        if(endIdx < 0) continue;
+        if (endIdx < 0) continue;
 
         const tStart = ride.points[startIdx].t;
         const tEnd = ride.points[endIdx].t;
-        const timeS = Math.max(1, Math.round((tEnd - tStart)/1000));
+        const timeS = Math.max(1, Math.round((tEnd - tStart) / 1000));
 
         const attempt = {
           uid: mockUser.uid,
@@ -639,15 +742,15 @@
         };
 
         s.attempts = s.attempts || [];
-        if(!s.attempts.some(a => a.rideId === ride.id)){
+        if (!s.attempts.some(a => a.rideId === ride.id)) {
           s.attempts.push(attempt);
         }
       }
     }
 
     // ---------- Recording ----------
-    function startRide(){
-      if(!navigator.geolocation){
+    function startRide() {
+      if (!navigator.geolocation) {
         alert("Este navegador no soporta geolocalización.");
         return;
       }
@@ -668,14 +771,14 @@
       btnStart.disabled = true;
       btnStop.disabled = false;
 
-      if(timerId) clearInterval(timerId);
+      if (timerId) clearInterval(timerId);
       timerId = setInterval(() => {
-        if(!recording) return;
+        if (!recording) return;
         const sec = (Date.now() - startTs) / 1000;
         elTime.textContent = fmtTime(sec);
         elPts.textContent = String(points.length);
-        elDist.textContent = (distM/1000).toFixed(2) + " km";
-        const avg = sec > 0 ? (distM/1000) / (sec/3600) : 0;
+        elDist.textContent = (distM / 1000).toFixed(2) + " km";
+        const avg = sec > 0 ? (distM / 1000) / (sec / 3600) : 0;
         elAvg.textContent = avg.toFixed(0) + " km/h";
       }, 250);
 
@@ -690,8 +793,8 @@
       );
     }
 
-    function stopRide(){
-      if(!recording) return;
+    function stopRide() {
+      if (!recording) return;
       recording = false;
 
       btnStart.disabled = false;
@@ -699,18 +802,18 @@
 
       elRec.textContent = "REC: OFF";
 
-      if(watchId !== null){
+      if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
       }
-      if(timerId){
+      if (timerId) {
         clearInterval(timerId);
         timerId = null;
       }
 
-      const durationS = Math.max(1, Math.round((Date.now() - startTs)/1000));
-      if(points.length >= 2){
-        const avgKmh = ((distM/1000) / (durationS/3600));
+      const durationS = Math.max(1, Math.round((Date.now() - startTs) / 1000));
+      if (points.length >= 2) {
+        const avgKmh = ((distM / 1000) / (durationS / 3600));
         const ride = {
           id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
           startedAt: startTs,
@@ -727,7 +830,7 @@
         // detect segment attempts
         detectAttemptsForRide(ride);
         saveSegments();
-        if(activeTab === "segments") renderSegments();
+        if (activeTab === "segments") renderSegments();
 
         elPill.textContent = "SAVED";
         elPill.className = "pill good";
@@ -737,7 +840,7 @@
       }
     }
 
-    function onPos(pos){
+    function onPos(pos) {
       const c = pos.coords;
       const p = {
         t: Date.now(),
@@ -751,28 +854,28 @@
       document.getElementById("pillAcc").textContent = "ACC: " + (acc ? (Math.round(acc) + "m") : "—");
       document.getElementById("gpsLabel").textContent = "GPS: " + (acc ? ("±" + Math.round(acc) + "m") : "—");
 
-      if(lastPoint){
-        const d = haversineMeters({lat:lastPoint.lat,lng:lastPoint.lng},{lat:p.lat,lng:p.lng});
-        if(d < 250) distM += d;
+      if (lastPoint) {
+        const d = haversineMeters({ lat: lastPoint.lat, lng: lastPoint.lng }, { lat: p.lat, lng: p.lng });
+        if (d < 250) distM += d;
       }
       lastPoint = p;
 
       points.push(p);
 
       let kmh = 0;
-      if(typeof p.spd === "number" && !Number.isNaN(p.spd)){
+      if (typeof p.spd === "number" && !Number.isNaN(p.spd)) {
         kmh = p.spd * 3.6;
-      } else if(points.length >= 2){
-        const a = points[points.length-2];
-        const b = points[points.length-1];
-        const dt = Math.max(0.5, (b.t - a.t)/1000);
-        const d = haversineMeters({lat:a.lat,lng:a.lng},{lat:b.lat,lng:b.lng});
-        kmh = (d/dt) * 3.6;
+      } else if (points.length >= 2) {
+        const a = points[points.length - 2];
+        const b = points[points.length - 1];
+        const dt = Math.max(0.5, (b.t - a.t) / 1000);
+        const d = haversineMeters({ lat: a.lat, lng: a.lng }, { lat: b.lat, lng: b.lng });
+        kmh = (d / dt) * 3.6;
       }
       kmh = clamp(kmh, 0, 320);
 
       elSpeedNow.textContent = String(Math.round(kmh));
-      if(kmh > maxKmh){
+      if (kmh > maxKmh) {
         maxKmh = kmh;
         elSpeedMax.textContent = String(Math.round(maxKmh));
       }
@@ -781,11 +884,11 @@
       setMarker(p.lat, p.lng);
     }
 
-    function setMarker(lat,lng){
-      if(!marker){
-        marker = L.circleMarker([lat,lng], { radius: 8, weight: 2, opacity: 0.9, fillOpacity: 0.6 }).addTo(map);
+    function setMarker(lat, lng) {
+      if (!marker) {
+        marker = L.circleMarker([lat, lng], { radius: 8, weight: 2, opacity: 0.9, fillOpacity: 0.6 }).addTo(map);
       } else {
-        marker.setLatLng([lat,lng]);
+        marker.setLatLng([lat, lng]);
       }
     }
 
@@ -795,12 +898,12 @@
 
     btnCenter.onclick = () => {
       const ll = polyline.getLatLngs();
-      if(ll.length) map.fitBounds(polyline.getBounds().pad(0.25));
+      if (ll.length) map.fitBounds(polyline.getBounds().pad(0.25));
     };
 
     btnClear.onclick = () => {
       polyline.setLatLngs([]);
-      if(marker){ map.removeLayer(marker); marker = null; }
+      if (marker) { map.removeLayer(marker); marker = null; }
       clearMapMarkersOnly();
       elPill.textContent = "READY";
       elPill.className = "pill good";
@@ -835,20 +938,20 @@
     };
 
     map.on("click", (e) => {
-      if(!creatingSegment) return;
+      if (!creatingSegment) return;
 
-      if(createStage === 1){
+      if (createStage === 1) {
         segStart = { lat: e.latlng.lat, lng: e.latlng.lng };
-        if(segStartMarker) map.removeLayer(segStartMarker);
+        if (segStartMarker) map.removeLayer(segStartMarker);
         segStartMarker = L.circleMarker([segStart.lat, segStart.lng], { radius: 10, weight: 2, fillOpacity: 0.65 }).addTo(map);
         createStage = 2;
         segmentHint.textContent = "Now click END point on the map…";
         return;
       }
 
-      if(createStage === 2){
+      if (createStage === 2) {
         segEnd = { lat: e.latlng.lat, lng: e.latlng.lng };
-        if(segEndMarker) map.removeLayer(segEndMarker);
+        if (segEndMarker) map.removeLayer(segEndMarker);
         segEndMarker = L.circleMarker([segEnd.lat, segEnd.lng], { radius: 10, weight: 2, fillOpacity: 0.65 }).addTo(map);
 
         const name = prompt("Segment name:", "MY SEGMENT") || "MY SEGMENT";
@@ -883,4 +986,5 @@
     setTab("rides");
   </script>
 </body>
+
 </html>
