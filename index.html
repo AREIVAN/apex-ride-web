@@ -661,6 +661,13 @@
     const MAX_ACC_M = 40;             // ignore fixes worse than this (25–60)
     const STOP_KMH = 2.0;             // below this, consider stopping
     const STOP_STREAK = 4;            // number of consecutive fixes to force 0
+    // --- GPS warm-up (avoid initial jump) ---
+    let warmupUntilTs = 0;
+    let warmupGood = 0;
+    const WARMUP_MS = 4000;   // 3–6s recomendado
+    const WARMUP_NEED = 2;    // fixes buenos antes de contar
+    const WARMUP_ACC_M = 35;  // requiere accuracy <= esto
+
 
     const mockUser = { uid: "local_user", name: "AREIVAN" };
 
@@ -995,6 +1002,13 @@
       distM = 0;
       maxKmh = 0;
       startTs = Date.now();
+      // reset filtros
+      speedEma = 0;
+      stationaryStreak = 0;
+
+      // warm-up
+      warmupUntilTs = Date.now() + WARMUP_MS;
+      warmupGood = 0;
       lastPoint = null;
 
       polyline.setLatLngs([]);
@@ -1092,28 +1106,58 @@
         lng: c.longitude,
         acc: c.accuracy ?? null,
         spd: c.speed ?? null // m/s
-
       };
 
+      // Último fix conocido (Center)
       lastFix = { lat: p.lat, lng: p.lng, acc: p.acc, t: p.t };
 
-      const acc = typeof p.acc === "number" ? p.acc : null;
+      const acc = (typeof p.acc === "number" && !Number.isNaN(p.acc)) ? p.acc : null;
       document.getElementById("pillAcc").textContent = "ACC: " + (acc ? (Math.round(acc) + "m") : "—");
       document.getElementById("gpsLabel").textContent = "GPS: " + (acc ? ("±" + Math.round(acc) + "m") : "—");
 
+      // ---- Warm-up: NO registrar puntos/distancia/velocidad hasta tener GPS estable ----
+      const now = Date.now();
+      const accOkWarm = (acc !== null && acc <= WARMUP_ACC_M);
+
+      if (recording && (now < warmupUntilTs || warmupGood < WARMUP_NEED)) {
+        elPill.textContent = "GPS LOCK…";
+        elPill.className = "pill good";
+
+        if (accOkWarm) warmupGood++;
+
+        // mostrar el punto sin registrar el ride
+        setMarker(p.lat, p.lng);
+        if (followMode) map.panTo([p.lat, p.lng], { animate: false });
+
+        return;
+      }
+
+      // A partir de aquí ya registramos
+      elPill.textContent = "RECORDING";
+      elPill.className = "pill good";
+
+      // --- distancia: filtra por accuracy + movimiento mínimo ---
+      const accOk = (acc === null) ? true : (acc <= MAX_ACC_M);
+      const minMoveM = acc ? Math.max(6, acc * 0.30) : 6;
+
       if (lastPoint) {
         const d = haversineMeters({ lat: lastPoint.lat, lng: lastPoint.lng }, { lat: p.lat, lng: p.lng });
-        if (d < 250) distM += d;
-      }
-      lastPoint = p;
+        const dt = Math.max(0.5, (p.t - lastPoint.t) / 1000);
 
+        // filtro "teleport": salto irreal -> ignora
+        const teleport = (d > 120 && dt < 2);
+
+        if (accOk && !teleport && d >= minMoveM && d < 250) {
+          distM += d;
+        }
+      }
+
+      // Actualiza lastPoint y guarda punto
+      lastPoint = p;
       points.push(p);
 
-      // --------- Compute raw speed (km/h) ----------
+      // --------- Speed (filtrada) ----------
       let rawKmh = 0;
-
-      // OJO: aquí REUSAMOS `acc` (ya existe arriba en tu onPos)
-      const accOk = (acc === null) ? true : (acc <= MAX_ACC_M);
 
       if (accOk && typeof p.spd === "number" && !Number.isNaN(p.spd)) {
         rawKmh = p.spd * 3.6;
@@ -1122,14 +1166,16 @@
         const b = points[points.length - 1];
         const dt = Math.max(0.5, (b.t - a.t) / 1000);
         const d = haversineMeters({ lat: a.lat, lng: a.lng }, { lat: b.lat, lng: b.lng });
-        rawKmh = (d / dt) * 3.6;
+
+        // filtro teleport también en velocidad
+        if (!(d > 120 && dt < 2)) {
+          rawKmh = (d / dt) * 3.6;
+        }
       }
 
       rawKmh = clamp(rawKmh, 0, 320);
 
-      // --------- Stationary detection (kill drift) ----------
-      const minMoveM = acc ? Math.max(6, acc * 0.30) : 6;
-
+      // Stationary detection
       let dLast = 0;
       if (points.length >= 2) {
         const prev = points[points.length - 2];
@@ -1137,41 +1183,34 @@
       }
 
       const looksStopped = accOk && (dLast < minMoveM) && (rawKmh < STOP_KMH);
-
       if (looksStopped) stationaryStreak++;
       else if (accOk) stationaryStreak = 0;
 
-      // --------- Smooth speed (EMA) ----------
+      // Smooth speed (EMA)
       if (accOk) {
         speedEma = (ALPHA * rawKmh) + ((1 - ALPHA) * speedEma);
       }
 
       let kmh = speedEma;
-
       if (stationaryStreak >= STOP_STREAK) kmh = 0;
       if (kmh < 1.2) kmh = 0;
-
       kmh = clamp(kmh, 0, 320);
 
-      // --------- UI + Max ----------
+      // UI + Max
       elSpeedNow.textContent = String(Math.round(kmh));
       if (kmh > maxKmh) {
         maxKmh = kmh;
         elSpeedMax.textContent = String(Math.round(maxKmh));
       }
+
+      // Dibujar ruta
       polyline.addLatLng([p.lat, p.lng]);
       setMarker(p.lat, p.lng);
-    }
 
-    function setMarker(lat, lng) {
-      if (!marker) {
-        marker = L.circleMarker([lat, lng], { radius: 8, weight: 2, opacity: 0.9, fillOpacity: 0.6 }).addTo(map);
-      } else {
-        marker.setLatLng([lat, lng]);
+      // FOLLOW (aquí sí existe p)
+      if (followMode) {
+        map.panTo([p.lat, p.lng], { animate: true });
       }
-    }
-    if (followMode) {
-      map.panTo([p.lat, p.lng], { animate: true });
     }
 
     // ---------- Buttons ----------
