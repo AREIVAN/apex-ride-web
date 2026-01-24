@@ -350,6 +350,61 @@
 </head>
 
 <body>
+  <!-- Ride Summary Modal -->
+  <div id="rideModal" style="position:fixed; inset:0; display:none; z-index:2000; background:rgba(0,0,0,.55);">
+    <div style="
+      width:min(560px, calc(100vw - 24px));
+      margin:18px auto;
+      background:linear-gradient(180deg, rgba(11,16,32,.96), rgba(12,20,42,.92));
+      border:1px solid rgba(122,63,255,.25);
+      border-radius:16px;
+      overflow:hidden;
+      box-shadow: 0 0 24px rgba(122,63,255,.18), 0 0 18px rgba(47,230,255,.10);
+    ">
+      <div
+        style="padding:14px 16px; display:flex; justify-content:space-between; align-items:flex-start; border-bottom:1px solid rgba(122,63,255,.18);">
+        <div style="min-width:0;">
+          <div style="font-size:12px; color:rgba(234,240,255,.65); letter-spacing:.12em; font-weight:800;" id="sumName">
+            —</div>
+          <div
+            style="font-size:22px; font-weight:900; letter-spacing:.02em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
+            id="sumType">RIDE</div>
+          <div style="font-size:12px; color:rgba(234,240,255,.65);" id="sumDate">—</div>
+        </div>
+        <button id="btnCloseRide" class="smallBtn">CLOSE</button>
+      </div>
+
+      <div id="sumMap" style="height:240px;"></div>
+
+      <div style="padding:14px 16px; display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div class="kpi">
+          <div class="k">DISTANCE</div>
+          <div class="v" id="sumDist">—</div>
+        </div>
+        <div class="kpi">
+          <div class="k">DURATION</div>
+          <div class="v" id="sumDur">—</div>
+        </div>
+        <div class="kpi">
+          <div class="k">AVG SPEED</div>
+          <div class="v" id="sumAvg">—</div>
+        </div>
+        <div class="kpi">
+          <div class="k">MAX SPEED</div>
+          <div class="v" id="sumMax">—</div>
+        </div>
+        <div class="kpi">
+          <div class="k">AVG PACE</div>
+          <div class="v" id="sumPace">—</div>
+        </div>
+        <div class="kpi">
+          <div class="k">POINTS</div>
+          <div class="v" id="sumPts">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="app">
     <div class="left">
       <div class="panel">
@@ -450,6 +505,7 @@
               </div>
 
               <div id="segmentsList"></div>
+
             </div>
           </div>
         </div>
@@ -719,6 +775,7 @@
         map.fitBounds(polyline.getBounds().pad(0.2));
         setMarker(latlngs[latlngs.length - 1][0], latlngs[latlngs.length - 1][1]);
       }
+      openRideSummary(r);
       elSpeedNow.textContent = "0";
       elSpeedMax.textContent = String(Math.round(r.maxKmh));
       elTime.textContent = fmtTime(r.durationS);
@@ -1209,6 +1266,76 @@
         }
       }
     });
+
+    // ---------- Ride Summary Modal ----------
+    let sumMap = null;
+    let sumLine = null;
+
+    const rideModal = document.getElementById("rideModal");
+    const btnCloseRide = document.getElementById("btnCloseRide");
+
+    btnCloseRide.onclick = () => { rideModal.style.display = "none"; };
+
+    // Cerrar si tocan el fondo oscuro
+    rideModal.addEventListener("click", (e) => {
+      if (e.target === rideModal) rideModal.style.display = "none";
+    });
+
+    function ensureSummaryMap() {
+      if (sumMap) return;
+
+      sumMap = L.map("sumMap", {
+        zoomControl: false,
+        attributionControl: false,
+        dragging: false,
+        scrollWheelZoom: false,
+        doubleClickZoom: false,
+        boxZoom: false,
+        keyboard: false,
+        tap: false
+      });
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(sumMap);
+      sumLine = L.polyline([], { weight: 5, opacity: 0.95 }).addTo(sumMap);
+    }
+
+    function fmtPaceMinPerKm(durationS, distKm) {
+      if (!distKm || distKm <= 0) return "—";
+      const pace = durationS / 60 / distKm; // min/km
+      const m = Math.floor(pace);
+      const s = Math.round((pace - m) * 60);
+      return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")} min/km`;
+    }
+
+    function openRideSummary(ride) {
+      ensureSummaryMap();
+
+      // Header
+      document.getElementById("sumName").textContent = (userProfile?.name || "—").toUpperCase();
+      document.getElementById("sumType").textContent = (userProfile?.vehicle || "RIDE").toUpperCase();
+      document.getElementById("sumDate").textContent = new Date(ride.startedAt).toLocaleString();
+
+      // Metrics
+      const distKm = (ride.distanceM / 1000);
+      document.getElementById("sumDist").textContent = distKm.toFixed(2) + " km";
+      document.getElementById("sumDur").textContent = fmtTime(ride.durationS);
+      document.getElementById("sumAvg").textContent = (ride.avgKmh || 0).toFixed(0) + " km/h";
+      document.getElementById("sumMax").textContent = Math.round(ride.maxKmh || 0) + " km/h";
+      document.getElementById("sumPace").textContent = fmtPaceMinPerKm(ride.durationS, distKm);
+      document.getElementById("sumPts").textContent = String(ride.points?.length || 0);
+
+      // Map polyline
+      const latlngs = (ride.points || []).map(p => [p.lat, p.lng]);
+      sumLine.setLatLngs(latlngs);
+
+      rideModal.style.display = "block";
+
+      // Leaflet: cuando el mapa aparece dentro de un modal, hay que recalcular tamaño
+      setTimeout(() => {
+        sumMap.invalidateSize(true);
+        if (latlngs.length) sumMap.fitBounds(sumLine.getBounds().pad(0.20));
+      }, 60);
+    }
 
     // ---------- Init ----------
     applyProfileToUI();
