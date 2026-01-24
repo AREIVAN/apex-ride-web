@@ -359,6 +359,13 @@
             <div>
               <div style="font-size:12px; color:var(--muted); letter-spacing:.18em; font-weight:800;">APEX</div>
               <div style="font-size:14px; font-weight:900; letter-spacing:.08em;">RIDE</div>
+
+              <!-- Nuevo: perfil visible -->
+              <div style="margin-top:6px; font-size:11px; color:var(--muted); letter-spacing:.06em;">
+                <span id="profileName">—</span>
+                <span style="opacity:.6;"> • </span>
+                <span id="profileVehicle">—</span>
+              </div>
             </div>
           </div>
           <div class="chip" id="vehicleChip">MOTO</div>
@@ -407,11 +414,16 @@
             <button id="btnCenter">CENTER</button>
             <button id="btnClear">CLEAR MAP</button>
           </div>
+          <div class="actions">
+            <button id="btnProfile">PROFILE</button>
+            <button disabled style="opacity:.35;">—</button>
+          </div>
 
           <div class="statusLine">
             <div class="pill good" id="pillStatus">READY</div>
             <div class="pill" id="pillAcc">ACC: —</div>
             <div class="pill" id="pillMode">MODE: WEB DEMO</div>
+            <div class="pill" id="pillPlates">PL: —</div>
           </div>
 
           <div class="list">
@@ -522,18 +534,20 @@
     function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
 
     // ---------- State ----------
-    // ---------- State ----------
     const STORAGE_KEY = "apex_ride_web_rides_v1";
+    const SEGMENTS_KEY = "apex_ride_web_segments_v1";
+    const PROFILE_KEY = "apex_ride_user_profile_v1";
+
+    let userProfile = loadProfile();
     let rides = loadRides();
+    let segments = loadSegments();
 
     // Nuevo: último fix conocido (para Center fuera de Start Ride)
     let lastFix = null; // { lat, lng, acc, t }
 
-    // Segments storage
-    const SEGMENTS_KEY = "apex_ride_web_segments_v1";
-    let segments = loadSegments();
     let activeTab = "rides";
 
+    // Segment creation state...
     // Segment creation state
     let creatingSegment = false;
     let createStage = 0; // 0=none, 1=waiting start, 2=waiting end
@@ -584,6 +598,10 @@
     const btnCenter = document.getElementById("btnCenter");
     const btnClear = document.getElementById("btnClear");
 
+    const elProfileName = document.getElementById("profileName");
+    const elProfileVehicle = document.getElementById("profileVehicle");
+    const elPillPlates = document.getElementById("pillPlates");
+
     // Segments UI refs
     const tabRides = document.getElementById("tabRides");
     const tabSegments = document.getElementById("tabSegments");
@@ -593,6 +611,8 @@
     const btnCancelSegment = document.getElementById("btnCancelSegment");
     const segmentHint = document.getElementById("segmentHint");
     const segmentsList = document.getElementById("segmentsList");
+
+    const btnProfile = document.getElementById("btnProfile");
 
     // ---------- Storage ----------
     function loadRides() {
@@ -614,6 +634,44 @@
       localStorage.setItem(SEGMENTS_KEY, JSON.stringify(segments));
     }
 
+    function loadProfile() {
+      try {
+        const raw = localStorage.getItem(PROFILE_KEY);
+        if (raw) return JSON.parse(raw);
+      } catch (e) { }
+
+      // Default profile (si no existe)
+      return {
+        uid: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
+        name: "AREIVAN",
+        vehicle: "MOTO",
+        plates: "" // opcional
+      };
+    }
+
+    function saveProfile() {
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(userProfile));
+    }
+
+    function maskPlates(p) {
+      const s = (p || "").trim().toUpperCase();
+      if (!s) return "—";
+      const last4 = s.replace(/[^A-Z0-9]/g, "").slice(-4);
+      return last4 ? `***-${last4}` : "—";
+    }
+
+    function applyProfileToUI() {
+      // Chip de vehículo
+      const chip = document.getElementById("vehicleChip");
+      if (chip) chip.textContent = (userProfile.vehicle || "MOTO").toUpperCase();
+
+      // Header: Nombre + Vehículo
+      if (elProfileName) elProfileName.textContent = (userProfile.name || "—").toUpperCase();
+      if (elProfileVehicle) elProfileVehicle.textContent = (userProfile.vehicle || "MOTO").toUpperCase();
+
+      // Status pill: Placas enmascaradas
+      if (elPillPlates) elPillPlates.textContent = "PL: " + maskPlates(userProfile.plates);
+    }
     // ---------- Tabs ----------
     function setTab(tab) {
       activeTab = tab;
@@ -810,8 +868,10 @@
         const timeS = Math.max(1, Math.round((tEnd - tStart) / 1000));
 
         const attempt = {
-          uid: mockUser.uid,
-          name: mockUser.name,
+          uid: userProfile.uid,
+          name: userProfile.name,
+          plates: userProfile.plates, // opcional
+          vehicle: userProfile.vehicle, // opcional
           timeS,
           date: Date.now(),
           rideId: ride.id,
@@ -898,7 +958,13 @@
           distanceM: distM,
           maxKmh,
           avgKmh,
-          points
+          points,
+          user: {
+            uid: userProfile.uid,
+            name: userProfile.name,
+            vehicle: userProfile.vehicle,
+            plates: userProfile.plates
+          }
         };
         rides.push(ride);
         saveRides();
@@ -975,6 +1041,21 @@
     // ---------- Buttons ----------
     btnStart.onclick = startRide;
     btnStop.onclick = stopRide;
+    btnProfile.onclick = () => {
+      const name = prompt("Nombre de usuario:", userProfile.name || "") ?? userProfile.name;
+      const vehicle = prompt("Vehículo (MOTO/CAR):", userProfile.vehicle || "MOTO") ?? userProfile.vehicle;
+      const plates = prompt("Placas (opcional):", userProfile.plates || "") ?? userProfile.plates;
+
+      userProfile.name = String(name).trim() || userProfile.name;
+      userProfile.vehicle = String(vehicle).trim().toUpperCase() || "MOTO";
+      userProfile.plates = String(plates).trim().toUpperCase();
+
+      saveProfile();
+      applyProfileToUI();
+
+      elPill.textContent = "PROFILE SAVED";
+      elPill.className = "pill good";
+    };
 
     btnCenter.onclick = () => {
       // 1) Si hay una ruta cargada (grabada o ride histórico), centra a esa
@@ -1108,6 +1189,7 @@
     });
 
     // ---------- Init ----------
+    applyProfileToUI();
     renderRides();
     renderSegments();
     setTab("rides");
