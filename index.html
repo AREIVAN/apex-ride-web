@@ -461,6 +461,7 @@
       <div class="mapOverlay">
         <div class="badge" id="badgeHint">Tip: Usa HTTPS o localhost para GPS.</div>
         <div class="badge" id="badgeRec">REC: OFF</div>
+        <div class="badge" id="badgeFollow" style="cursor:pointer;">FOLLOW: OFF</div>
       </div>
     </div>
   </div>
@@ -541,13 +542,13 @@
     let userProfile = loadProfile();
     let rides = loadRides();
     let segments = loadSegments();
+    let followMode = false;
 
     // Nuevo: último fix conocido (para Center fuera de Start Ride)
     let lastFix = null; // { lat, lng, acc, t }
 
     let activeTab = "rides";
 
-    // Segment creation state...
     // Segment creation state
     let creatingSegment = false;
     let createStage = 0; // 0=none, 1=waiting start, 2=waiting end
@@ -601,6 +602,8 @@
     const elProfileName = document.getElementById("profileName");
     const elProfileVehicle = document.getElementById("profileVehicle");
     const elPillPlates = document.getElementById("pillPlates");
+
+    const elFollow = document.getElementById("badgeFollow");
 
     // Segments UI refs
     const tabRides = document.getElementById("tabRides");
@@ -892,6 +895,7 @@
         return;
       }
       recording = true;
+      setFollow(true);
       points = [];
       distM = 0;
       maxKmh = 0;
@@ -933,6 +937,7 @@
     function stopRide() {
       if (!recording) return;
       recording = false;
+      setFollow(false);
 
       btnStart.disabled = false;
       btnStop.disabled = true;
@@ -1037,6 +1042,9 @@
         marker.setLatLng([lat, lng]);
       }
     }
+    if (followMode) {
+      map.panTo([p.lat, p.lng], { animate: true });
+    }
 
     // ---------- Buttons ----------
     btnStart.onclick = startRide;
@@ -1056,6 +1064,20 @@
       elPill.textContent = "PROFILE SAVED";
       elPill.className = "pill good";
     };
+
+    function setFollow(on) {
+      followMode = !!on;
+      if (elFollow) elFollow.textContent = "FOLLOW: " + (followMode ? "ON" : "OFF");
+    }
+
+    if (elFollow) {
+      elFollow.onclick = () => setFollow(!followMode);
+    }
+
+    // Si el usuario mueve/zoomea el mapa manualmente, apagamos follow
+    map.on("dragstart zoomstart", () => {
+      if (followMode) setFollow(false);
+    });
 
     btnCenter.onclick = () => {
       // 1) Si hay una ruta cargada (grabada o ride histórico), centra a esa
