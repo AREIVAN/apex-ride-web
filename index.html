@@ -654,6 +654,14 @@
     let segStartMarker = null;
     let segEndMarker = null;
 
+    // --- Speed/GPS filtering ---
+    let speedEma = 0;                 // km/h smoothed
+    let stationaryStreak = 0;         // consecutive "not moving" fixes
+    const ALPHA = 0.25;               // smoothing factor (0.15–0.35)
+    const MAX_ACC_M = 40;             // ignore fixes worse than this (25–60)
+    const STOP_KMH = 2.0;             // below this, consider stopping
+    const STOP_STREAK = 4;            // number of consecutive fixes to force 0
+
     const mockUser = { uid: "local_user", name: "AREIVAN" };
 
     // ---------- Map ----------
@@ -1101,24 +1109,56 @@
 
       points.push(p);
 
-      let kmh = 0;
-      if (typeof p.spd === "number" && !Number.isNaN(p.spd)) {
-        kmh = p.spd * 3.6;
-      } else if (points.length >= 2) {
+      // --------- Compute raw speed (km/h) ----------
+      let rawKmh = 0;
+
+      // OJO: aquí REUSAMOS `acc` (ya existe arriba en tu onPos)
+      const accOk = (acc === null) ? true : (acc <= MAX_ACC_M);
+
+      if (accOk && typeof p.spd === "number" && !Number.isNaN(p.spd)) {
+        rawKmh = p.spd * 3.6;
+      } else if (accOk && points.length >= 2) {
         const a = points[points.length - 2];
         const b = points[points.length - 1];
         const dt = Math.max(0.5, (b.t - a.t) / 1000);
         const d = haversineMeters({ lat: a.lat, lng: a.lng }, { lat: b.lat, lng: b.lng });
-        kmh = (d / dt) * 3.6;
+        rawKmh = (d / dt) * 3.6;
       }
+
+      rawKmh = clamp(rawKmh, 0, 320);
+
+      // --------- Stationary detection (kill drift) ----------
+      const minMoveM = acc ? Math.max(6, acc * 0.30) : 6;
+
+      let dLast = 0;
+      if (points.length >= 2) {
+        const prev = points[points.length - 2];
+        dLast = haversineMeters({ lat: prev.lat, lng: prev.lng }, { lat: p.lat, lng: p.lng });
+      }
+
+      const looksStopped = accOk && (dLast < minMoveM) && (rawKmh < STOP_KMH);
+
+      if (looksStopped) stationaryStreak++;
+      else if (accOk) stationaryStreak = 0;
+
+      // --------- Smooth speed (EMA) ----------
+      if (accOk) {
+        speedEma = (ALPHA * rawKmh) + ((1 - ALPHA) * speedEma);
+      }
+
+      let kmh = speedEma;
+
+      if (stationaryStreak >= STOP_STREAK) kmh = 0;
+      if (kmh < 1.2) kmh = 0;
+
       kmh = clamp(kmh, 0, 320);
 
+      // --------- UI + Max ----------
       elSpeedNow.textContent = String(Math.round(kmh));
       if (kmh > maxKmh) {
         maxKmh = kmh;
         elSpeedMax.textContent = String(Math.round(maxKmh));
       }
-
       polyline.addLatLng([p.lat, p.lng]);
       setMarker(p.lat, p.lng);
     }
