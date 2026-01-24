@@ -590,6 +590,35 @@
     }
     function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
 
+    //funcion bloquear celular
+    let wakeLock = null;
+
+    async function enableWakeLock() {
+      try {
+        if (!("wakeLock" in navigator)) return false;
+        wakeLock = await navigator.wakeLock.request("screen");
+        wakeLock.addEventListener("release", () => {
+          // opcional: console.log("WakeLock released");
+        });
+        return true;
+      } catch (e) {
+        console.warn("WakeLock not available/denied:", e);
+        return false;
+      }
+    }
+
+    async function disableWakeLock() {
+      try {
+        if (wakeLock) {
+          await wakeLock.release();
+          wakeLock = null;
+        }
+      } catch (e) {
+        console.warn("WakeLock release failed:", e);
+      }
+    }
+
+
     // ---------- State ----------
     const STORAGE_KEY = "apex_ride_web_rides_v1";
     const SEGMENTS_KEY = "apex_ride_web_segments_v1";
@@ -952,6 +981,7 @@
         return;
       }
       recording = true;
+      enableWakeLock();
       setFollow(true);
       points = [];
       distM = 0;
@@ -994,6 +1024,7 @@
     function stopRide() {
       if (!recording) return;
       recording = false;
+      disableWakeLock();
       setFollow(false);
 
       btnStart.disabled = false;
@@ -1337,6 +1368,14 @@
       }, 60);
     }
 
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        if (recording) enableWakeLock();
+      } else {
+        // opcional: no es necesario, pero limpio
+        disableWakeLock();
+      }
+    });
     // ---------- Init ----------
     applyProfileToUI();
     renderRides();
