@@ -522,8 +522,12 @@
     function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
 
     // ---------- State ----------
+    // ---------- State ----------
     const STORAGE_KEY = "apex_ride_web_rides_v1";
     let rides = loadRides();
+
+    // Nuevo: último fix conocido (para Center fuera de Start Ride)
+    let lastFix = null; // { lat, lng, acc, t }
 
     // Segments storage
     const SEGMENTS_KEY = "apex_ride_web_segments_v1";
@@ -921,7 +925,10 @@
         lng: c.longitude,
         acc: c.accuracy ?? null,
         spd: c.speed ?? null // m/s
+
       };
+
+      lastFix = { lat: p.lat, lng: p.lng, acc: p.acc, t: p.t };
 
       const acc = typeof p.acc === "number" ? p.acc : null;
       document.getElementById("pillAcc").textContent = "ACC: " + (acc ? (Math.round(acc) + "m") : "—");
@@ -970,10 +977,36 @@
     btnStop.onclick = stopRide;
 
     btnCenter.onclick = () => {
+      // 1) Si hay una ruta cargada (grabada o ride histórico), centra a esa
       const ll = polyline.getLatLngs();
-      if (ll.length) map.fitBounds(polyline.getBounds().pad(0.25));
-    };
+      if (ll.length) {
+        map.fitBounds(polyline.getBounds().pad(0.25));
+        return;
+      }
 
+      // 2) Si ya tenemos última ubicación conocida, centra ahí
+      if (lastFix) {
+        map.flyTo([lastFix.lat, lastFix.lng], Math.max(map.getZoom(), 17), { animate: true });
+        return;
+      }
+
+      // 3) Si no hay nada, pide una lectura puntual
+      if (!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const c = pos.coords;
+          lastFix = { lat: c.latitude, lng: c.longitude, acc: c.accuracy ?? null, t: Date.now() };
+          setMarker(lastFix.lat, lastFix.lng); // opcional: muestra tu punto actual aunque no grabes
+          map.flyTo([lastFix.lat, lastFix.lng], Math.max(map.getZoom(), 17), { animate: true });
+        },
+        (err) => {
+          console.error(err);
+          elPill.textContent = "GPS DENIED";
+          elPill.className = "pill bad";
+        },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+      );
+    };
     btnClear.onclick = () => {
       segmentLine.setLatLngs([]);
       polyline.setLatLngs([]);
