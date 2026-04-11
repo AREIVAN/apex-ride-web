@@ -1,0 +1,13 @@
+{
+  "name": "apex-ride-web",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @apex-ride/web",
+    "lint": "npm run lint --workspace @apex-ride/web",
+    "typecheck": "npm run typecheck --workspace @apex-ride/web"
+  }
+}

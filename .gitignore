@@ -1,0 +1,15 @@
+node_modules/
+.next/
+dist/
+coverage/
+.env
+.env.local
+.env.development.local
+.env.production.local
+*.tsbuildinfo
+
+# local Supabase
+.supabase/
+
+# macOS
+.DS_Store
