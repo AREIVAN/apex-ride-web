@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 
-import { initialAuthActionState, loginAction } from "@/features/auth/actions/auth-actions";
+import { loginAction } from "@/features/auth/actions/auth-actions";
 import { Button } from "@/features/shared/ui/button";
 import { Card } from "@/features/shared/ui/card";
 import { Input } from "@/features/shared/ui/input";
@@ -13,8 +13,12 @@ interface LoginFormProps {
   infoMessage?: string;
 }
 
+interface AuthState {
+  error: string | null;
+}
+
 export function LoginForm({ nextPath, infoMessage }: LoginFormProps) {
-  const [state, formAction] = useActionState(loginAction, initialAuthActionState);
+  const [state, formAction] = useActionState<AuthState, FormData>(loginAction, { error: null });
 
   return (
     <Card className="mx-auto w-full max-w-md">
@@ -31,7 +35,7 @@ export function LoginForm({ nextPath, infoMessage }: LoginFormProps) {
           <span>Clave</span>
           <Input name="password" type="password" placeholder="********" required />
         </label>
-        {state.error ? <p className="text-sm font-medium text-rose-600" role="alert">{state.error}</p> : null}
+        {state?.error ? <p className="text-sm font-medium text-rose-600" role="alert">{state.error}</p> : null}
         <SubmitButton />
       </form>
     </Card>

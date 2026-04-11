@@ -3,13 +3,17 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 
-import { initialAuthActionState, registerAction } from "@/features/auth/actions/auth-actions";
+import { registerAction } from "@/features/auth/actions/auth-actions";
 import { Button } from "@/features/shared/ui/button";
 import { Card } from "@/features/shared/ui/card";
 import { Input } from "@/features/shared/ui/input";
 
+interface AuthState {
+  error: string | null;
+}
+
 export function RegisterForm() {
-  const [state, formAction] = useActionState(registerAction, initialAuthActionState);
+  const [state, formAction] = useActionState<AuthState, FormData>(registerAction, { error: null });
 
   return (
     <Card className="mx-auto w-full max-w-md">
@@ -32,7 +36,7 @@ export function RegisterForm() {
           <span>Confirmar clave</span>
           <Input name="confirmPassword" type="password" required />
         </label>
-        {state.error ? <p className="text-sm font-medium text-rose-600">{state.error}</p> : null}
+        {state?.error ? <p className="text-sm font-medium text-rose-600">{state.error}</p> : null}
         <SubmitButton />
       </form>
     </Card>

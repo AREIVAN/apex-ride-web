@@ -1,11 +1,11 @@
 import type { PropsWithChildren } from "react";
 
-import { createClient } from "@/lib/supabase/browser";
+import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/features/auth/services/auth-server";
 import { AppShell } from "@/features/shared/ui/app-shell";
 
 async function checkIsAdmin(userId: string): Promise<boolean> {
-  const client = createClient();
+  const client = await createClient();
   const { data, error } = await client
     .from("profiles")
     .select("bio")

@@ -23,10 +23,6 @@ export interface AuthActionState {
   error: string | null;
 }
 
-export const initialAuthActionState: AuthActionState = {
-  error: null
-};
-
 export async function loginAction(_: AuthActionState, formData: FormData): Promise<AuthActionState> {
   const parsed = loginSchema.safeParse({
     email: formData.get("email"),
