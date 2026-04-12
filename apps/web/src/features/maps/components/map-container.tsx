@@ -13,9 +13,11 @@ interface MapContainerProps {
   zoom?: number;
   showControls?: boolean;
   onMapReady?: (map: maplibregl.Map) => void;
+  useUserLocation?: boolean;
+  routeCoordinates?: [number, number][];
+  segmentCoordinates?: [number, number][];
 }
 
-const DEFAULT_CENTER: [number, number] = [-34.6037, -58.3816]; // Buenos Aires
 const DEFAULT_ZOOM = 12;
 
 // Tile server configuration - production ready
@@ -25,12 +27,37 @@ const TILE_LAYER = {
   maxZoom: 20,
 };
 
+const FALLBACK_CENTER: [number, number] = [-34.6037, -58.3816]; // Buenos Aires
+
+// Get user's current location
+function getUserLocation(): Promise<[number, number]> {
+  return new Promise((resolve) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      resolve(FALLBACK_CENTER);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve([position.coords.longitude, position.coords.latitude]);
+      },
+      () => {
+        resolve(FALLBACK_CENTER);
+      },
+      { timeout: 10000, maximumAge: 300000 }
+    );
+  });
+}
+
 export function MapContainer({
   title = "Mapa de actividad",
-  center = DEFAULT_CENTER,
+  center,
   zoom = DEFAULT_ZOOM,
   showControls = true,
   onMapReady,
+  useUserLocation = true,
+  routeCoordinates,
+  segmentCoordinates,
 }: MapContainerProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -38,66 +65,133 @@ export function MapContainer({
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // Skip if map already initialized or no container
     if (!mapContainer.current || map.current) return;
 
-    try {
-      map.current = new maplibregl.Map({
-        container: mapContainer.current,
-        style: {
-          version: 8,
-          sources: {
-            "carto-voyager": {
-              type: "raster",
-              tiles: [TILE_LAYER.url],
-              tileSize: 256,
-              attribution: TILE_LAYER.attribution,
-              maxzoom: TILE_LAYER.maxZoom,
-            },
-          },
-          layers: [
-            {
-              id: "carto-voyager-layer",
-              type: "raster",
-              source: "carto-voyager",
-              minzoom: 0,
-              maxzoom: 20,
-            },
-          ],
-        },
-        center,
-        zoom,
-        attributionControl: false,
-      });
+    let isMounted = true;
 
-      map.current.on("load", () => {
-        setIsLoading(false);
-        if (onMapReady && map.current) {
-          onMapReady(map.current);
-        }
-      });
-
-      map.current.on("error", (e) => {
-        console.error("Map error:", e);
-        setMapError("Error al cargar el mapa");
-        setIsLoading(false);
-      });
-
-      if (showControls) {
-        map.current.addControl(new maplibregl.NavigationControl(), "top-right");
-        map.current.addControl(new maplibregl.GeolocateControl({ trackUserLocation: true }), "top-right");
+    async function initializeMap() {
+      // Get user location if not provided and enabled
+      let mapCenter: [number, number];
+      if (useUserLocation && !center) {
+        mapCenter = await getUserLocation();
+      } else {
+        mapCenter = center ?? FALLBACK_CENTER;
       }
-    } catch (error) {
-      console.error("Map initialization error:", error);
-      setMapError("Error al inicializar el mapa");
+
+      if (!isMounted) return;
+
+      const containerElement = mapContainer.current;
+      if (!containerElement) return;
+
+      try {
+        map.current = new maplibregl.Map({
+          container: containerElement,
+          style: {
+            version: 8,
+            sources: {
+              "carto-voyager": {
+                type: "raster",
+                tiles: [TILE_LAYER.url],
+                tileSize: 256,
+                attribution: TILE_LAYER.attribution,
+                maxzoom: TILE_LAYER.maxZoom,
+              },
+            },
+            layers: [
+              {
+                id: "carto-voyager-layer",
+                type: "raster",
+                source: "carto-voyager",
+                minzoom: 0,
+                maxzoom: 20,
+              },
+            ],
+          },
+          center: mapCenter,
+          zoom,
+          attributionControl: false,
+        });
+
+        map.current.on("load", () => {
+          setIsLoading(false);
+          if (onMapReady && map.current) {
+            onMapReady(map.current);
+          }
+        });
+
+        map.current.on("error", (e) => {
+          console.error("Map error:", e);
+          setMapError("Error al cargar el mapa");
+          setIsLoading(false);
+        });
+
+        if (showControls) {
+          map.current.addControl(new maplibregl.NavigationControl(), "top-right");
+          map.current.addControl(new maplibregl.GeolocateControl({ trackUserLocation: true }), "top-right");
+        }
+      } catch (error) {
+        console.error("Map initialization error:", error);
+        setMapError("Error al inicializar el mapa");
+      }
     }
 
+    initializeMap();
+
     return () => {
+      isMounted = false;
       if (map.current) {
         map.current.remove();
         map.current = null;
       }
     };
-  }, [center, zoom, showControls, onMapReady]);
+  }, [center, zoom, showControls, onMapReady, useUserLocation, routeCoordinates, segmentCoordinates]);
+
+  // Draw segment route on map
+  useEffect(() => {
+    if (!map.current || !segmentCoordinates || segmentCoordinates.length === 0) return;
+
+    const sourceId = "segment-route";
+    const layerId = "segment-route-layer";
+
+    if (map.current.getSource(sourceId)) {
+      (map.current.getSource(sourceId) as maplibregl.GeoJSONSource).setData({
+        type: "Feature",
+        properties: {},
+        geometry: { type: "LineString", coordinates: segmentCoordinates },
+      });
+    } else {
+      map.current.addSource(sourceId, {
+        type: "geojson",
+        data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: segmentCoordinates } },
+      });
+
+      map.current.addLayer({
+        id: `${layerId}-outline`,
+        type: "line",
+        source: sourceId,
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": "#ffffff", "line-width": 8, "line-opacity": 0.5 },
+      });
+
+      map.current.addLayer({
+        id: layerId,
+        type: "line",
+        source: sourceId,
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": "#f59e0b", "line-width": 5, "line-opacity": 0.9 },
+      });
+    }
+
+    // Fit to segment
+    if (segmentCoordinates.length > 1) {
+      const bounds = segmentCoordinates.reduce(
+        (b, c) => b.extend(c as any),
+        new maplibregl.LngLatBounds(segmentCoordinates[0], segmentCoordinates[0])
+      );
+      map.current.fitBounds(bounds, { padding: 50, maxZoom: 15 });
+    }
+  }, [segmentCoordinates]);
 
   return (
     <Card className="overflow-hidden p-0">

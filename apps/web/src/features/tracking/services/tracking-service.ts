@@ -31,7 +31,7 @@ export function createTrackingService(client: SupabaseClient<Database>): Trackin
     async listTrackableSegments() {
       const { data, error } = await client
         .from("segments")
-        .select("id,start_lat,start_lng,end_lat,end_lng")
+        .select("id,name,start_lat,start_lng,end_lat,end_lng")
         .eq("visibility", "public")
         .order("created_at", { ascending: false })
         .limit(100);
@@ -43,6 +43,7 @@ export function createTrackingService(client: SupabaseClient<Database>): Trackin
       return (data ?? []).map((segment) =>
         segmentDefinitionSchema.parse({
           id: segment.id,
+          name: segment.name || undefined,
           start: { lat: segment.start_lat, lng: segment.start_lng },
           end: { lat: segment.end_lat, lng: segment.end_lng },
           route: [

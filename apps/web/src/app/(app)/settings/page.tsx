@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/browser";
+import { createClient } from "@/lib/supabase/server";
 import { SettingsPanel } from "@/features/settings/components/settings-panel";
 import { createSettingsService } from "@/features/settings/services/settings-service";
 import { requireUser } from "@/features/auth/services/auth-server";
@@ -6,7 +6,7 @@ import { EmptyState } from "@/features/shared/ui/empty-state";
 
 export default async function SettingsPage() {
   const { user } = await requireUser();
-  const client = createClient();
+  const client = await createClient();
   const service = createSettingsService(client);
 
   try {

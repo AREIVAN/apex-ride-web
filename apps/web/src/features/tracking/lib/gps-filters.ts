@@ -12,6 +12,7 @@ export interface TrackingMetrics {
   maxSpeedKmh: number;
   pointsAccepted: number;
   warmupLocked: boolean;
+  movingTimeSec: number;
 }
 
 export interface GpsFilterState {
@@ -21,6 +22,8 @@ export interface GpsFilterState {
   speedEma: number;
   stationaryStreak: number;
   metrics: TrackingMetrics;
+  acceptedPoints: Array<{ lat: number; lng: number; timestamp: number; speedMs: number | null; altitudeM: number | null }>;
+  lastTimestamp: number | null;
 }
 
 export interface GpsFilterStepResult {
@@ -50,7 +53,8 @@ const initialMetrics: TrackingMetrics = {
   speedKmh: 0,
   maxSpeedKmh: 0,
   pointsAccepted: 0,
-  warmupLocked: true
+  warmupLocked: true,
+  movingTimeSec: 0
 };
 
 export function createGpsFilterState(startedAt = 0): GpsFilterState {
@@ -60,7 +64,9 @@ export function createGpsFilterState(startedAt = 0): GpsFilterState {
     lastFix: null,
     speedEma: 0,
     stationaryStreak: 0,
-    metrics: { ...initialMetrics }
+    metrics: { ...initialMetrics, movingTimeSec: 0 },
+    acceptedPoints: [],
+    lastTimestamp: null
   };
 }
 
@@ -88,7 +94,9 @@ export function ingestGpsFix(
       metrics: {
         ...state.metrics,
         warmupLocked: true
-      }
+      },
+      acceptedPoints: state.acceptedPoints,
+      lastTimestamp: state.lastTimestamp
     };
 
     return {
@@ -134,12 +142,22 @@ export function ingestGpsFix(
   const speedKmh =
     stationaryStreak >= config.stopStreak || speedEma < 1.2 ? 0 : clamp(speedEma, 0, 320);
 
+  // Calculate moving time (only count time when moving)
+  let movingTimeSec = state.metrics.movingTimeSec || 0;
+  if (state.lastTimestamp && canAccumulateDistance) {
+    const timeDelta = (fix.timestamp - state.lastTimestamp) / 1000;
+    if (timeDelta > 0 && timeDelta < 60) { // Sanity check: max 60s between points
+      movingTimeSec += timeDelta;
+    }
+  }
+
   const metrics: TrackingMetrics = {
     distanceM,
     speedKmh,
     maxSpeedKmh: Math.max(state.metrics.maxSpeedKmh, speedKmh),
     pointsAccepted: state.metrics.pointsAccepted + 1,
-    warmupLocked: false
+    warmupLocked: false,
+    movingTimeSec: Math.round(movingTimeSec)
   };
 
   const nextState: GpsFilterState = {
@@ -148,7 +166,9 @@ export function ingestGpsFix(
     lastFix: fix,
     speedEma,
     stationaryStreak,
-    metrics
+    metrics,
+    acceptedPoints: [...state.acceptedPoints, { lat: fix.lat, lng: fix.lng, timestamp: fix.timestamp, speedMs: fix.speedMs, altitudeM: fix.altitudeM ?? null }],
+    lastTimestamp: fix.timestamp
   };
 
   return {
@@ -197,6 +217,10 @@ export class GpsFilterEngine {
     const result = ingestGpsFix(this.state, fix, this.config);
     this.state = result.state;
     return result.metrics;
+  }
+
+  getAllPoints(): Array<{ lat: number; lng: number; timestamp: number; speedMs: number | null; altitudeM: number | null }> {
+    return this.state.acceptedPoints || [];
   }
 }
 

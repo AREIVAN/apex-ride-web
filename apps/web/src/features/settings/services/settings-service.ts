@@ -1,5 +1,3 @@
-"use client";
-
 import { z } from "zod";
 
 import type { Database } from "@/lib/supabase/database.types";

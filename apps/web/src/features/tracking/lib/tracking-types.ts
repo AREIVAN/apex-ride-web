@@ -27,6 +27,7 @@ export type TrackPoint = z.infer<typeof trackPointSchema>;
 
 export const segmentDefinitionSchema = z.object({
   id: z.string().min(1),
+  name: z.string().optional(),
   start: geoPointSchema,
   end: geoPointSchema,
   route: z.array(geoPointSchema).min(2),

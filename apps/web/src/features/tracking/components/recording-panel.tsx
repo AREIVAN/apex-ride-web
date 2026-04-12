@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import maplibregl from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
 
 import { Button } from "@/features/shared/ui/button";
 import { Card } from "@/features/shared/ui/card";
@@ -14,7 +16,26 @@ import { createTrackingService } from "../services/tracking-service";
 
 interface RecordingPanelProps {
   riderId: string;
+  onMetricsUpdate?: (metrics: RideMetrics) => void;
+  onRouteUpdate?: (route: [number, number][]) => void;
+  activeSegment?: SegmentDefinition | null;
 }
+
+export interface RideMetrics {
+  speedKmh: number;
+  maxSpeedKmh: number;
+  distanceM: number;
+  avgSpeedKmh: number;
+  movingTimeSec: number;
+  pointsAccepted: number;
+}
+
+const TILE_LAYER = {
+  url: "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+  attribution: '&copy; OpenStreetMap &copy; CARTO',
+};
+
+const FALLBACK_CENTER: [number, number] = [-34.6037, -58.3816];
 
 function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
@@ -42,7 +63,7 @@ function AnimatedNumber({
   const [display, setDisplay] = useState(value);
   const prevRef = useRef(value);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (reduced) {
       setDisplay(value);
       return;
@@ -73,77 +94,248 @@ function AnimatedNumber({
   return <span className="tabular-nums">{format(display)}</span>;
 }
 
-function SkeletonMetric({ label }: { label: string }) {
+function MetricCard({ 
+  label, 
+  value, 
+  unit, 
+  highlight = false,
+  reduced 
+}: { 
+  label: string; 
+  value: number; 
+  unit: string;
+  highlight?: boolean;
+  reduced: boolean;
+}) {
   return (
-    <div className="animate-pulse rounded-xl bg-slate-200 px-2 py-3">
-      <div className="mx-auto h-3 w-12 rounded bg-slate-300" />
-      <div className="mx-auto mt-2 h-5 w-16 rounded bg-slate-300" />
+    <div className={`rounded-xl px-3 py-3 ${highlight ? 'bg-brand-50 border-2 border-brand-300' : 'bg-slate-50'}`}>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <div className="mt-1 flex items-baseline gap-1">
+        <AnimatedNumber 
+          value={value} 
+          format={(n) => unit === 'km' ? n.toFixed(2) : Math.round(n).toString()}
+          reduced={reduced}
+        />
+        <span className="text-sm font-medium text-slate-600">{unit}</span>
+      </div>
     </div>
   );
 }
 
 function LoadingDots({ text }: { text: string }) {
   return (
-    <span className="inline-flex">
+    <span className="inline-flex items-center gap-1">
+      <span className="text-sm text-slate-600">{text}</span>
       <span className="relative flex h-2 w-2">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-slate-400 opacity-75" />
         <span className="relative inline-flex h-2 w-2 rounded-full bg-slate-500" />
-      </span>
-      <span className="relative flex h-2 w-2">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-slate-400 opacity-75 animation-delay-200" />
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-slate-500 animation-delay-200" />
-      </span>
-      <span className="relative flex h-2 w-2">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-slate-400 opacity-75 animation-delay-400" />
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-slate-500 animation-delay-400" />
       </span>
     </span>
   );
 }
 
-export function RecordingPanel({ riderId }: RecordingPanelProps) {
-  const reducedMotion = useReducedMotion();
+function getUserLocation(): Promise<[number, number]> {
+  return new Promise((resolve) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      resolve(FALLBACK_CENTER);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve([position.coords.longitude, position.coords.latitude]),
+      () => resolve(FALLBACK_CENTER),
+      { timeout: 10000 }
+    );
+  });
+}
+
+// Live tracking map component
+function LiveTrackingMap({ 
+  route, 
+  currentPosition,
+  activeSegment 
+}: { 
+  route: [number, number][];
+  currentPosition: [number, number] | null;
+  activeSegment: SegmentDefinition | null;
+}) {
+  const mapContainer = useRef<HTMLDivElement>(null);
+  const map = useRef<maplibregl.Map | null>(null);
+  const routeSource = useRef<maplibregl.GeoJSONSource | null>(null);
+  const currentMarker = useRef<maplibregl.Marker | null>(null);
+  const segmentSource = useRef<maplibregl.GeoJSONSource | null>(null);
+
+  // Initialize map
+  useEffect(() => {
+    if (!mapContainer.current || map.current) return;
+
+    const containerElement = mapContainer.current;
+
+    getUserLocation().then((center) => {
+      map.current = new maplibregl.Map({
+        container: containerElement,
+        style: {
+          version: 8,
+          sources: {
+            "carto-voyager": {
+              type: "raster",
+              tiles: [TILE_LAYER.url],
+              tileSize: 256,
+              attribution: TILE_LAYER.attribution,
+            },
+          },
+          layers: [{ id: "base", type: "raster", source: "carto-voyager", minzoom: 0 }],
+        },
+        center,
+        zoom: 14,
+      });
+
+      map.current.on("load", () => {
+        map.current?.addControl(new maplibregl.NavigationControl(), "top-right");
+        map.current?.addControl(new maplibregl.GeolocateControl({ trackUserLocation: true }), "top-right");
+
+        // Add route source
+        map.current?.addSource("live-route", {
+          type: "geojson",
+          data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [] } },
+        });
+
+        map.current?.addLayer({
+          id: "route-outline",
+          type: "line",
+          source: "live-route",
+          layout: { "line-join": "round", "line-cap": "round" },
+          paint: { "line-color": "#ffffff", "line-width": 6, "line-opacity": 0.6 },
+        });
+
+        map.current?.addLayer({
+          id: "route-line",
+          type: "line",
+          source: "live-route",
+          layout: { "line-join": "round", "line-cap": "round" },
+          paint: { "line-color": "#0d9488", "line-width": 4, "line-opacity": 0.9 },
+        });
+
+        routeSource.current = map.current?.getSource("live-route") as maplibregl.GeoJSONSource;
+
+        // Add segment source
+        map.current?.addSource("segment-route", {
+          type: "geojson",
+          data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [] } },
+        });
+
+        map.current?.addLayer({
+          id: "segment-line",
+          type: "line",
+          source: "segment-route",
+          layout: { "line-join": "round", "line-cap": "round" },
+          paint: { "line-color": "#f59e0b", "line-width": 3, "line-opacity": 0.7, "line-dasharray": [2, 1] },
+        });
+
+        segmentSource.current = map.current?.getSource("segment-route") as maplibregl.GeoJSONSource;
+      });
+    });
+
+    return () => {
+      if (map.current) {
+        map.current.remove();
+        map.current = null;
+      }
+    };
+  }, []);
+
+  // Update route
+  useEffect(() => {
+    if (!routeSource.current || route.length === 0) return;
+
+    routeSource.current.setData({
+      type: "Feature",
+      properties: {},
+      geometry: { type: "LineString", coordinates: route },
+    });
+
+    // Fit bounds to route
+    if (map.current && route.length > 1) {
+      const bounds = route.reduce(
+        (b, coord) => b.extend(coord as any),
+        new maplibregl.LngLatBounds(route[0], route[0])
+      );
+      map.current.fitBounds(bounds, { padding: 50, maxZoom: 16 });
+    }
+  }, [route]);
+
+  // Update current position marker
+  useEffect(() => {
+    if (!map.current || !currentPosition) return;
+
+    if (!currentMarker.current) {
+      const el = document.createElement("div");
+      el.className = "w-4 h-4 rounded-full bg-brand-600 border-2 border-white shadow-lg animate-pulse";
+      currentMarker.current = new maplibregl.Marker({ element: el }).addTo(map.current);
+    }
+
+    currentMarker.current.setLngLat(currentPosition);
+  }, [currentPosition]);
+
+  // Show active segment
+  useEffect(() => {
+    if (!segmentSource.current || !activeSegment?.route) return;
+
+    segmentSource.current.setData({
+      type: "Feature",
+      properties: {},
+      geometry: { type: "LineString", coordinates: activeSegment.route.map(p => [p.lng, p.lat]) },
+    });
+  }, [activeSegment]);
+
+  return (
+    <div ref={mapContainer} className="h-full w-full rounded-lg" />
+  );
+}
+
+export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, activeSegment }: RecordingPanelProps) {
   const engine = useMemo(() => new GpsFilterEngine(), []);
   const service = useMemo(() => createTrackingService(createClient()), []);
+  const reduced = useReducedMotion();
 
   const watchIdRef = useRef<number | null>(null);
-  const ridePointsRef = useRef<TrackPoint[]>([]);
-  const rideIdRef = useRef<string | null>(null);
-  const startedAtRef = useRef<number | null>(null);
+  const routeRef = useRef<[number, number][]>([]);
+  const startTimeRef = useRef<number | null>(null);
 
   const [status, setStatus] = useState<"idle" | "starting" | "recording" | "paused" | "saving">("idle");
-  const [distanceM, setDistanceM] = useState(0);
-  const [speedKmh, setSpeedKmh] = useState(0);
-  const [maxSpeedKmh, setMaxSpeedKmh] = useState(0);
-  const [fixes, setFixes] = useState(0);
-  const [lastAccuracy, setLastAccuracy] = useState<number | null>(null);
-  const [panelMessage, setPanelMessage] = useState("Listo para iniciar captura real por GPS.");
+  const [metrics, setMetrics] = useState<RideMetrics>({
+    speedKmh: 0,
+    maxSpeedKmh: 0,
+    distanceM: 0,
+    avgSpeedKmh: 0,
+    movingTimeSec: 0,
+    pointsAccepted: 0,
+  });
+  const [currentPosition, setCurrentPosition] = useState<[number, number] | null>(null);
+  const [panelMessage, setPanelMessage] = useState("Listo para iniciar tu rodada.");
   const [segments, setSegments] = useState<SegmentDefinition[]>([]);
   const [segmentsError, setSegmentsError] = useState<string | null>(null);
   const [isSegmentsLoading, setIsSegmentsLoading] = useState(true);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const isRecording = status === "recording";
-  const isLoading = status === "starting" || status === "saving";
 
+  // Load segments on mount
   useEffect(() => {
     async function loadSegments() {
       setIsSegmentsLoading(true);
-      setSegmentsError(null);
-
       try {
         const loadedSegments = await service.listTrackableSegments();
         setSegments(loadedSegments);
       } catch (error) {
-        setSegmentsError(error instanceof Error ? error.message : "No se pudieron cargar segmentos para detectar intentos.");
+        setSegmentsError(error instanceof Error ? error.message : "No se pudieron cargar segmentos.");
       } finally {
         setIsSegmentsLoading(false);
       }
     }
-
     void loadSegments();
   }, [service]);
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (watchIdRef.current !== null && typeof navigator !== "undefined" && navigator.geolocation) {
@@ -152,39 +344,40 @@ export function RecordingPanel({ riderId }: RecordingPanelProps) {
     };
   }, []);
 
+  // Notify parent of metrics changes
+  useEffect(() => {
+    onMetricsUpdate?.(metrics);
+  }, [metrics, onMetricsUpdate]);
+
+  // Notify parent of route changes
+  useEffect(() => {
+    onRouteUpdate?.(routeRef.current);
+  }, [routeRef.current, onRouteUpdate]);
+
   async function startRecording() {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setPanelMessage("Tu navegador no soporta geolocalizacion en tiempo real.");
+      setPanelMessage("Tu navegador no soporta geolocalización.");
       return;
     }
 
     setSaveError(null);
     setStatus("starting");
-    setPanelMessage("Creando rodada en Supabase...");
+    setPanelMessage("Iniciando grabacion...");
+    routeRef.current = [];
 
     try {
-      const rideId = await service.startRide(riderId);
-      rideIdRef.current = rideId;
-      startedAtRef.current = Date.now();
+      await service.startRide(riderId);
+      startTimeRef.current = Date.now();
     } catch (error) {
       setStatus("idle");
-      setSaveError(error instanceof Error ? error.message : "No se pudo iniciar la rodada en la base de datos.");
+      setSaveError(error instanceof Error ? error.message : "No se pudo iniciar la rodada.");
       return;
     }
 
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-    }
-
-    const now = Date.now();
-    engine.start(now);
-    ridePointsRef.current = [];
+    engine.start(Date.now());
     setStatus("recording");
-    setDistanceM(0);
-    setSpeedKmh(0);
-    setMaxSpeedKmh(0);
-    setFixes(0);
-    setPanelMessage("Buscando lock de GPS para arrancar el tracking...");
+    setMetrics({ speedKmh: 0, maxSpeedKmh: 0, distanceM: 0, avgSpeedKmh: 0, movingTimeSec: 0, pointsAccepted: 0 });
+    setPanelMessage("Grabando... GPS activo.");
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
@@ -195,31 +388,37 @@ export function RecordingPanel({ riderId }: RecordingPanelProps) {
           timestamp,
           accuracyM: position.coords.accuracy ?? null,
           speedMs: position.coords.speed ?? null,
-          altitudeM: position.coords.altitude ?? null
+          altitudeM: position.coords.altitude ?? null,
         };
 
-        setLastAccuracy(fix.accuracyM);
-        const metrics = engine.ingest(fix);
+        setCurrentPosition([fix.lng, fix.lat]);
 
-        if (!metrics.warmupLocked) {
-          ridePointsRef.current.push({
-            lat: fix.lat,
-            lng: fix.lng,
-            timestamp,
-            altitudeM: fix.altitudeM,
-            speedMs: fix.speedMs,
-            accuracyM: fix.accuracyM
-          });
+        const result = engine.ingest(fix);
+        
+        const newMetrics: RideMetrics = {
+          speedKmh: result.speedKmh,
+          maxSpeedKmh: result.maxSpeedKmh,
+          distanceM: result.distanceM,
+          avgSpeedKmh: result.distanceM > 0 && result.movingTimeSec > 0 
+            ? (result.distanceM / 1000) / (result.movingTimeSec / 3600) 
+            : 0,
+          movingTimeSec: result.movingTimeSec,
+          pointsAccepted: result.pointsAccepted,
+        };
+        
+        setMetrics(newMetrics);
+
+        // Add to route
+        routeRef.current.push([fix.lng, fix.lat]);
+
+        if (result.warmupLocked) {
+          setPanelMessage("Buscando GPS...");
+        } else {
+          setPanelMessage(`Grabando: ${(result.distanceM / 1000).toFixed(2)} km`);
         }
-
-        setDistanceM(metrics.distanceM);
-        setSpeedKmh(metrics.speedKmh);
-        setMaxSpeedKmh(metrics.maxSpeedKmh);
-        setFixes(metrics.pointsAccepted);
-        setPanelMessage(metrics.warmupLocked ? "GPS lock en proceso..." : "Grabando trayectoria y metricas.");
       },
       () => {
-        setPanelMessage("Error de GPS. Revisa permisos de ubicacion y volve a intentar.");
+        setPanelMessage("Error de GPS. Verifica permisos.");
       },
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
     );
@@ -230,9 +429,8 @@ export function RecordingPanel({ riderId }: RecordingPanelProps) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
-
     setStatus("paused");
-    setPanelMessage("Grabacion pausada. Podes finalizar o iniciar una nueva rodada.");
+    setPanelMessage("Grabacion pausada.");
   }
 
   async function finishRecording() {
@@ -241,155 +439,155 @@ export function RecordingPanel({ riderId }: RecordingPanelProps) {
       watchIdRef.current = null;
     }
 
-    const rideId = rideIdRef.current;
-    if (!rideId) {
+    if (!startTimeRef.current) {
       setStatus("idle");
-      setPanelMessage("No hay una rodada activa para finalizar.");
+      setPanelMessage("No hay rodada activa.");
       return;
     }
 
-    const attempts = detectSegmentAttempts(ridePointsRef.current, segments);
-    const movingTimeSec = startedAtRef.current ? Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000)) : 0;
+    const movingTimeSec = Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000));
+    const allPoints = engine.getAllPoints();
+
+    // Detect segment attempts
+    const attempts = detectSegmentAttempts(
+      allPoints.map(p => ({ lat: p.lat, lng: p.lng, timestamp: p.timestamp })),
+      activeSegment ? [activeSegment] : segments
+    );
 
     setStatus("saving");
-    setPanelMessage("Guardando puntos y resultados en Supabase...");
-    setSaveError(null);
+    setPanelMessage("Guardando rodada...");
 
     try {
-      await service.saveRidePoints(rideId, ridePointsRef.current);
-      await service.saveSegmentAttempts(
-        rideId,
-        riderId,
-        attempts.map((attempt) => ({
-          segmentId: attempt.segmentId,
-          elapsedTimeSec: attempt.elapsedTimeSec
-        }))
-      );
-      await service.finalizeRide(rideId, {
-        distanceM,
+      await service.saveRidePoints(riderId, allPoints);
+      
+      if (attempts.length > 0) {
+        await service.saveSegmentAttempts(
+          riderId,
+          riderId,
+          attempts.map(a => ({ segmentId: a.segmentId, elapsedTimeSec: a.elapsedTimeSec }))
+        );
+      }
+
+      await service.finalizeRide(riderId, {
+        distanceM: metrics.distanceM,
         movingTimeSec,
-        elevationGainM: 0
+        elevationGainM: 0,
       });
 
-      setPanelMessage(
-        attempts.length
-          ? `Rodada finalizada y guardada. ${attempts.length} intento(s) de segmento detectado(s).`
-          : "Rodada finalizada y guardada. Sin intentos validos de segmentos."
-      );
+      setPanelMessage(attempts.length > 0 
+        ? `Rodada guardada. ${attempts.length} intento(s) detectado(s).`
+        : "Rodada guardada. Sin intentos en segmentos.");
       setStatus("idle");
-      rideIdRef.current = null;
-      startedAtRef.current = null;
+      routeRef.current = [];
+      startTimeRef.current = null;
     } catch (error) {
       setStatus("paused");
-      setSaveError(error instanceof Error ? error.message : "No se pudo guardar la rodada.");
-      setPanelMessage("Hubo un problema al persistir la rodada. Podes reintentar finalizar.");
+      setSaveError(error instanceof Error ? error.message : "Error al guardar.");
+      setPanelMessage("Error al guardar. Intenta de nuevo.");
     }
   }
 
   return (
-    <Card className="space-y-4">
-      <div>
-        <div className="flex items-center gap-2">
-          <h2 className="text-xl font-bold text-slate-900">Motorcycle tracking panel</h2>
-          {isRecording && (
-            <span
-              className={`inline-flex h-3 w-3 rounded-full ${reducedMotion ? "bg-rose-500" : "animate-pulse bg-rose-500"}`}
-              aria-label="Grabando"
-            />
-          )}
-          {isLoading && <LoadingDots text="" />}
+    <div className="space-y-4">
+      {/* Live metrics */}
+      <Card className="p-4">
+        <h3 className="text-lg font-bold text-slate-900 mb-3">Metrics en vivo</h3>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <MetricCard 
+            label="Velocidad" 
+            value={metrics.speedKmh} 
+            unit="km/h"
+            highlight={isRecording}
+            reduced={reduced}
+          />
+          <MetricCard 
+            label="Max" 
+            value={metrics.maxSpeedKmh} 
+            unit="km/h"
+            reduced={reduced}
+          />
+          <MetricCard 
+            label="Distancia" 
+            value={metrics.distanceM / 1000} 
+            unit="km"
+            reduced={reduced}
+          />
+          <MetricCard 
+            label="Promedio" 
+            value={metrics.avgSpeedKmh} 
+            unit="km/h"
+            reduced={reduced}
+          />
         </div>
-        <p className="text-sm text-slate-600">{panelMessage}</p>
-      </div>
+        
+        {/* Time tracking */}
+        <div className="mt-3 pt-3 border-t border-slate-200">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-slate-600">Tiempo en movimiento</span>
+            <span className="font-mono font-bold text-slate-900">
+              {Math.floor(metrics.movingTimeSec / 60).toString().padStart(2, '0')}:
+              {(metrics.movingTimeSec % 60).toString().padStart(2, '0')}
+            </span>
+          </div>
+        </div>
 
-      {isSegmentsLoading ? <SkeletonMetric label="Cargando..." /> : null}
-      {segmentsError ? <ErrorState title="Error cargando segmentos" description={segmentsError} /> : null}
-      {!isSegmentsLoading && !segmentsError && !segments.length ? (
-        <EmptyState
-          title="No hay segmentos disponibles"
-          description="Crea segmentos publicos para habilitar deteccion de intentos y leaderboard en tiempo real."
-        />
-      ) : null}
+        <p className="mt-2 text-xs text-slate-500 text-center">{panelMessage}</p>
+      </Card>
 
-      <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-4">
-        <Metric
-          label="Velocidad"
-          value={speedKmh}
-          format={(n) => `${Math.round(n)} km/h`}
-          reduced={reducedMotion}
-          highlight={isRecording && speedKmh > 0}
-        />
-        <Metric
-          label="Max"
-          value={maxSpeedKmh}
-          format={(n) => `${Math.round(n)} km/h`}
-          reduced={reducedMotion}
-        />
-        <Metric
-          label="Distancia"
-          value={distanceM / 1000}
-          format={(n) => `${n.toFixed(2)} km`}
-          reduced={reducedMotion}
-        />
-        <Metric label="Fixes" value={fixes} format={(n) => `${n}`} reduced={reducedMotion} />
-      </div>
+      {/* Active segment indicator */}
+      {activeSegment && (
+        <Card className="p-3 bg-amber-50 border-amber-200">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+            <span className="text-sm font-medium text-amber-800">
+              Segmento activo: {activeSegment.name}
+            </span>
+          </div>
+        </Card>
+      )}
 
-      <p className="text-xs text-slate-500">
-        Accuracy: {lastAccuracy ? `±${Math.round(lastAccuracy)} m` : "-"}
-      </p>
-      {saveError ? <p className="text-sm font-medium text-rose-600 animate-shake">{saveError}</p> : null}
+      {/* Controls */}
+      <Card className="p-4">
+        <div className="flex gap-2">
+          <Button 
+            onClick={startRecording} 
+            disabled={isRecording || status === "starting" || status === "saving"}
+            className="flex-1"
+          >
+            {status === "starting" ? "Iniciando..." : isRecording ? "Grabando..." : "Iniciar"}
+          </Button>
+          <Button 
+            variant="secondary" 
+            onClick={pauseRecording} 
+            disabled={!isRecording}
+          >
+            Pausar
+          </Button>
+          <Button 
+            variant="ghost" 
+            onClick={finishRecording} 
+            disabled={status === "idle" || status === "starting"}
+          >
+            {status === "saving" ? "Guardando..." : "Finalizar"}
+          </Button>
+        </div>
+        {saveError && <p className="mt-2 text-sm text-rose-600">{saveError}</p>}
+      </Card>
 
-      <div className="flex gap-2">
-        <Button
-          onClick={startRecording}
-          disabled={isRecording || status === "starting" || status === "saving"}
-          className={status === "starting" ? "opacity-70" : ""}
-        >
-          {status === "starting" ? "Iniciando..." : "Iniciar"}
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={pauseRecording}
-          disabled={!isRecording}
-          className={!isRecording ? "opacity-50" : ""}
-        >
-          Pausar
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={finishRecording}
-          disabled={status === "idle" || status === "starting"}
-          className={status === "saving" ? "opacity-70" : ""}
-        >
-          {status === "saving" ? "Guardando..." : "Finalizar"}
-        </Button>
-      </div>
-    </Card>
-  );
-}
-
-function Metric({
-  label,
-  value,
-  format,
-  reduced,
-  highlight = false
-}: {
-  label: string;
-  value: number;
-  format: (n: number) => string;
-  reduced: boolean;
-  highlight?: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-xl px-2 py-3 transition-colors ${
-        highlight ? "bg-amber-50 ring-2 ring-amber-400 ring-offset-1" : "bg-slate-50"
-      }`}
-      style={{ transitionDuration: reduced ? "0ms" : "200ms" }}
-    >
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      <AnimatedNumber value={value} format={format} reduced={reduced} />
+      {/* Segments info */}
+      {isSegmentsLoading ? (
+        <LoadingDots text="Cargando segmentos..." />
+      ) : segmentsError ? (
+        <ErrorState title="Error" description={segmentsError} />
+      ) : segments.length === 0 ? (
+        <p className="text-sm text-slate-500 text-center">No hay segmentos disponibles</p>
+      ) : (
+        <Card className="p-3">
+          <p className="text-xs text-slate-500 mb-2">
+            {segments.length} segmento(s) disponible(s) para intentar
+          </p>
+        </Card>
+      )}
     </div>
   );
 }
