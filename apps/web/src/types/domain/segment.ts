@@ -13,5 +13,6 @@ export interface Segment {
   startLng: number;
   endLat: number;
   endLng: number;
+  pathCoordinates?: [number, number][];
   createdAt: string;
 }

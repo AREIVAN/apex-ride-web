@@ -113,9 +113,19 @@ export default function RecordPage() {
   return (
     <div className="space-y-4 overflow-x-hidden">
       <PageHeader
-        title="Record"
-        description="Panel de grabacion en vivo con mapa, metrica de velocidad y segmentos para intentos."
-      />
+        title="Grabar"
+        description="Operacion de tracking en tiempo real con control claro de GPS, estados y objetivo de segmento."
+      >
+        <div className="grid gap-2 sm:grid-cols-3">
+          <StatPill label="Distancia en sesion" value={`${((metrics?.distanceM ?? 0) / 1000).toFixed(2)} km`} />
+          <StatPill label="Velocidad actual" value={`${(metrics?.speedKmh ?? 0).toFixed(1)} km/h`} />
+          <StatPill label="Segmento activo" value={selectedSegment ? selectedSegment.name : "Sin seleccionar"} />
+        </div>
+      </PageHeader>
+
+      <Card className="rounded-2xl border border-dashed border-slate-300 bg-white/70 p-3.5 text-sm text-slate-700">
+        Flujo recomendado: selecciona segmento, inicia grabacion, pausa solo en detenciones largas y finaliza al cerrar la ruta para conservar datos limpios.
+      </Card>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_390px]">
         {/* Map */}
         <div className="order-2 h-[42vh] min-h-[280px] sm:h-[52vh] sm:min-h-[340px] lg:order-1 lg:h-[calc(100vh-210px)]">
@@ -179,6 +189,15 @@ export default function RecordPage() {
         </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+function StatPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2.5">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 min-h-5 truncate text-sm font-semibold text-slate-900">{value}</p>
     </div>
   );
 }

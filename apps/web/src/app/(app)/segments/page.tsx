@@ -1,7 +1,8 @@
 import Link from "next/link";
 
 import { requireUser } from "@/features/auth/services/auth-server";
-import { SegmentCard } from "@/features/segments/components/segment-card";
+import { createLeaderboardService } from "@/features/leaderboard/services/leaderboard-service";
+import { SegmentsHub } from "@/features/segments/components/segments-hub";
 import { createSegmentsService } from "@/features/segments/services/segments-service";
 import { Button } from "@/features/shared/ui/button";
 import { EmptyState } from "@/features/shared/ui/empty-state";
@@ -12,12 +13,13 @@ export default async function SegmentsPage() {
 
   try {
     const segments = await createSegmentsService(client).listPublic();
+    const leaderboardBySegment = await createLeaderboardService(client).bySegments(segments.map((segment) => segment.id));
 
     return (
       <div className="space-y-4">
         <PageHeader
           title="Segmentos"
-          description="Defini rutas competitivas para comparar tiempos entre riders de la comunidad."
+          description="Modulo central para descubrir rutas, marcar favoritas y leer su valor competitivo en un vistazo."
           actions={
             <Link href="/segments/create">
               <Button>Nuevo segmento</Button>
@@ -25,17 +27,7 @@ export default async function SegmentsPage() {
           }
         />
 
-        {segments.length ? (
-          segments.map((segment) => (
-            <Link
-              key={segment.id}
-              href={`/segments/${segment.id}`}
-              className="block"
-            >
-              <SegmentCard segment={segment} />
-            </Link>
-          ))
-        ) : (
+        {segments.length ? <SegmentsHub segments={segments} leaderboardBySegment={leaderboardBySegment} /> : (
           <EmptyState
             title="Aun no hay segmentos"
             description="Crea el primer segmento de tu comunidad para habilitar clasificaciones reales."

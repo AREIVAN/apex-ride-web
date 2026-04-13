@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { requireUser } from "@/features/auth/services/auth-server";
-import { RideSummaryCard } from "@/features/rides/components/ride-summary-card";
+import { RidesExplorer } from "@/features/rides/components/rides-explorer";
 import { createRidesService } from "@/features/rides/services/rides-service";
 import { Button } from "@/features/shared/ui/button";
 import { EmptyState } from "@/features/shared/ui/empty-state";
@@ -17,23 +17,14 @@ export default async function RidesPage() {
       <div className="space-y-4">
         <PageHeader
           title="Tus rodadas"
-          description="Historial de actividades grabadas con resumen de distancia, elevacion y tiempo efectivo."
-        />
-        {!rides.length ? (
-          <EmptyState
-            title="Todavia no tenes salidas registradas"
-            description="Inicia una rodada desde Record para comenzar a guardar trazas y estadisticas de moto."
-          />
-        ) : (
-          rides.map((ride) => (
-            <Link key={ride.id} href={`/rides/${ride.id}`} className="block">
-              <RideSummaryCard ride={ride} />
+          description="Historial profesional con filtros, metricas y acceso rapido al detalle operativo de cada salida."
+          actions={
+            <Link href="/record">
+              <Button>Grabar nueva rodada</Button>
             </Link>
-          ))
-        )}
-        <Link href="/record">
-          <Button>Ir a grabar una rodada</Button>
-        </Link>
+          }
+        />
+        <RidesExplorer rides={rides} />
       </div>
     );
   } catch (error) {

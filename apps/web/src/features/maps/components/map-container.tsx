@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -63,6 +63,15 @@ export function MapContainer({
   const map = useRef<maplibregl.Map | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const safeRouteCoordinates = useMemo(
+    () => routeCoordinates?.filter(isValidCoordinate) ?? [],
+    [routeCoordinates]
+  );
+  const safeSegmentCoordinates = useMemo(
+    () => segmentCoordinates?.filter(isValidCoordinate) ?? [],
+    [segmentCoordinates]
+  );
 
   useEffect(() => {
     // Skip if map already initialized or no container
@@ -147,51 +156,54 @@ export function MapContainer({
     };
   }, [center, zoom, showControls, onMapReady, useUserLocation, routeCoordinates, segmentCoordinates]);
 
+  // Draw ride route on map
+  useEffect(() => {
+    if (!map.current || !safeRouteCoordinates.length) return;
+
+    const drawRoute = () => {
+      if (!map.current) return;
+      upsertLineLayer({
+        map: map.current,
+        sourceId: "ride-route",
+        layerId: "ride-route-layer",
+        coordinates: safeRouteCoordinates,
+        color: "#0d9488",
+        width: 4.5,
+        outlineColor: "#ffffff",
+        outlineWidth: 8
+      });
+
+      fitToCoordinates(map.current, safeRouteCoordinates, 60, 16);
+    };
+
+    if (map.current.isStyleLoaded()) drawRoute();
+    else map.current.once("load", drawRoute);
+  }, [safeRouteCoordinates]);
+
   // Draw segment route on map
   useEffect(() => {
-    if (!map.current || !segmentCoordinates || segmentCoordinates.length === 0) return;
+    if (!map.current || !safeSegmentCoordinates.length) return;
 
-    const sourceId = "segment-route";
-    const layerId = "segment-route-layer";
+    const drawSegment = () => {
+      if (!map.current) return;
 
-    if (map.current.getSource(sourceId)) {
-      (map.current.getSource(sourceId) as maplibregl.GeoJSONSource).setData({
-        type: "Feature",
-        properties: {},
-        geometry: { type: "LineString", coordinates: segmentCoordinates },
-      });
-    } else {
-      map.current.addSource(sourceId, {
-        type: "geojson",
-        data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: segmentCoordinates } },
-      });
-
-      map.current.addLayer({
-        id: `${layerId}-outline`,
-        type: "line",
-        source: sourceId,
-        layout: { "line-join": "round", "line-cap": "round" },
-        paint: { "line-color": "#ffffff", "line-width": 8, "line-opacity": 0.5 },
+      upsertLineLayer({
+        map: map.current,
+        sourceId: "segment-route",
+        layerId: "segment-route-layer",
+        coordinates: safeSegmentCoordinates,
+        color: "#f59e0b",
+        width: 5,
+        outlineColor: "#ffffff",
+        outlineWidth: 8
       });
 
-      map.current.addLayer({
-        id: layerId,
-        type: "line",
-        source: sourceId,
-        layout: { "line-join": "round", "line-cap": "round" },
-        paint: { "line-color": "#f59e0b", "line-width": 5, "line-opacity": 0.9 },
-      });
-    }
+      fitToCoordinates(map.current, safeSegmentCoordinates, 50, 15);
+    };
 
-    // Fit to segment
-    if (segmentCoordinates.length > 1) {
-      const bounds = segmentCoordinates.reduce(
-        (b, c) => b.extend(c as any),
-        new maplibregl.LngLatBounds(segmentCoordinates[0], segmentCoordinates[0])
-      );
-      map.current.fitBounds(bounds, { padding: 50, maxZoom: 15 });
-    }
-  }, [segmentCoordinates]);
+    if (map.current.isStyleLoaded()) drawSegment();
+    else map.current.once("load", drawSegment);
+  }, [safeSegmentCoordinates]);
 
   return (
     <Card className="overflow-hidden p-0">
@@ -219,6 +231,69 @@ export function MapContainer({
       </div>
     </Card>
   );
+}
+
+function isValidCoordinate(coordinate: [number, number] | undefined): coordinate is [number, number] {
+  if (!coordinate) return false;
+  const [lng, lat] = coordinate;
+  return Number.isFinite(lng) && Number.isFinite(lat);
+}
+
+function upsertLineLayer(params: {
+  map: maplibregl.Map;
+  sourceId: string;
+  layerId: string;
+  coordinates: [number, number][];
+  color: string;
+  width: number;
+  outlineColor: string;
+  outlineWidth: number;
+}) {
+  const { map, sourceId, layerId, coordinates, color, width, outlineColor, outlineWidth } = params;
+
+  const data = {
+    type: "Feature",
+    properties: {},
+    geometry: { type: "LineString", coordinates }
+  } as const;
+
+  if (map.getSource(sourceId)) {
+    (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(data);
+    return;
+  }
+
+  map.addSource(sourceId, { type: "geojson", data });
+
+  map.addLayer({
+    id: `${layerId}-outline`,
+    type: "line",
+    source: sourceId,
+    layout: { "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": outlineColor, "line-width": outlineWidth, "line-opacity": 0.5 }
+  });
+
+  map.addLayer({
+    id: layerId,
+    type: "line",
+    source: sourceId,
+    layout: { "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": color, "line-width": width, "line-opacity": 0.9 }
+  });
+}
+
+function fitToCoordinates(
+  map: maplibregl.Map,
+  coordinates: [number, number][],
+  padding: number,
+  maxZoom: number
+) {
+  if (coordinates.length < 2) return;
+
+  const bounds = coordinates.reduce(
+    (b, c) => b.extend(c),
+    new maplibregl.LngLatBounds(coordinates[0], coordinates[0])
+  );
+  map.fitBounds(bounds, { padding, maxZoom });
 }
 
 // Utility function to add a route polyline to the map

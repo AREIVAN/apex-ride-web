@@ -14,15 +14,15 @@ export default async function DashboardPage() {
     return (
       <div className="space-y-6">
         <PageHeader
-          title="Dashboard"
-          description="Seguimiento en tiempo real de actividad, desnivel acumulado e intentos de segmentos recientes."
+          title="Panel"
+          description="Resumen de actividad reciente, desnivel acumulado e intentos de segmentos."
         />
         <DashboardOverview {...snapshot} />
-        <MapContainer title="Mapa de calor de rodadas recientes" />
+        <MapContainer title="Mapa de actividad reciente" />
       </div>
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "No se pudo cargar el dashboard.";
-    return <EmptyState title="Dashboard sin datos" description={message} />;
+    const message = error instanceof Error ? error.message : "No se pudo cargar el panel.";
+    return <EmptyState title="Panel sin datos" description={message} />;
   }
 }

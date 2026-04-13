@@ -35,8 +35,28 @@ export function mapSegmentRow(row: SegmentRow): Segment {
     startLng: row.start_lng,
     endLat: row.end_lat,
     endLng: row.end_lng,
+    pathCoordinates: parseLineCoordinates(row.geom),
     createdAt: row.created_at
   };
+}
+
+function parseLineCoordinates(geom: unknown): [number, number][] | undefined {
+  if (!geom || typeof geom !== "object") return undefined;
+
+  const maybeGeo = geom as { coordinates?: unknown };
+  if (!Array.isArray(maybeGeo.coordinates)) return undefined;
+
+  const parsed = maybeGeo.coordinates
+    .map((coordinate) => {
+      if (!Array.isArray(coordinate) || coordinate.length < 2) return null;
+      const lng = Number(coordinate[0]);
+      const lat = Number(coordinate[1]);
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+      return [lng, lat] as [number, number];
+    })
+    .filter((coordinate): coordinate is [number, number] => Boolean(coordinate));
+
+  return parsed.length ? parsed : undefined;
 }
 
 export function mapProfileRow(row: ProfileRow): RiderProfile {
