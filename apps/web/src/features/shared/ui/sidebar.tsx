@@ -6,13 +6,13 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
 
 const nav = [
-  { href: "/dashboard", label: "Dashboard", icon: "OV" },
-  { href: "/rides", label: "Rides", icon: "RD" },
-  { href: "/record", label: "Record", icon: "REC" },
-  { href: "/segments", label: "Segments", icon: "SEG" },
-  { href: "/leaderboards", label: "Leaderboards", icon: "TOP" },
-  { href: "/profile", label: "Profile", icon: "ME" },
-  { href: "/settings", label: "Settings", icon: "CFG" }
+  { href: "/dashboard", label: "Panel", icon: "OV" },
+  { href: "/rides", label: "Rodadas", icon: "RD" },
+  { href: "/record", label: "Grabar", icon: "REC" },
+  { href: "/segments", label: "Segmentos", icon: "SEG" },
+  { href: "/leaderboards", label: "Clasificacion", icon: "TOP" },
+  { href: "/profile", label: "Perfil", icon: "ME" },
+  { href: "/settings", label: "Ajustes", icon: "CFG" }
 ] as const;
 
 export function Sidebar() {
@@ -24,7 +24,7 @@ export function Sidebar() {
         href="/dashboard"
         className="mb-8 block rounded-2xl bg-gradient-to-br from-asphalt-900 via-asphalt-800 to-asphalt-700 px-4 py-4 text-lg font-bold text-white shadow-[0_12px_28px_rgba(20,34,58,0.35)]"
       >
-        <p className="text-[10px] uppercase tracking-[0.18em] text-white/70">Ride Intelligence</p>
+        <p className="text-[10px] uppercase tracking-[0.18em] text-white/70">Inteligencia de rodadas</p>
         <p className="mt-1 text-xl">Apex Ride</p>
       </Link>
       <nav className="space-y-1.5">
@@ -57,7 +57,7 @@ export function Sidebar() {
         })}
       </nav>
       <div className="mt-6 rounded-xl border border-dashed border-slate-300/80 bg-white/70 p-3 text-xs text-slate-500">
-        Atajos rapidos: R para Record, D para Dashboard.
+        Atajos rapidos: R para Grabar, D para Panel.
       </div>
     </aside>
   );
