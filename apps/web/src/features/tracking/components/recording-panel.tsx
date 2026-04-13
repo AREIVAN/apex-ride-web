@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import maplibregl from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
+import mapboxgl from "mapbox-gl";
+import "mapbox-gl/dist/mapbox-gl.css";
 
 import { Button } from "@/features/shared/ui/button";
 import { Card } from "@/features/shared/ui/card";
@@ -14,6 +14,13 @@ import { createClient } from "@/lib/supabase/browser";
 import { GpsFilterEngine, type GpsFilterConfig } from "../lib/gps-filters";
 import { detectSegmentAttempts, type SegmentDefinition, type TrackPoint } from "../lib/segment-attempt-detector";
 import { createTrackingService } from "../services/tracking-service";
+import {
+  MAP_DEFAULTS,
+  ROUTE_COLORS,
+  ROUTE_WIDTHS,
+  getMapboxToken,
+  resolveMapStyle,
+} from "@/features/maps/lib/map-config";
 
 interface RecordingPanelProps {
   riderId: string;
@@ -32,12 +39,15 @@ export interface RideMetrics {
   pointsAccepted: number;
 }
 
-const TILE_LAYER = {
-  url: "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-  attribution: '&copy; OpenStreetMap &copy; CARTO',
-};
+const FALLBACK_CENTER: [number, number] = MAP_DEFAULTS.center;
+const MAP_MATCHING_ENABLED = process.env.NEXT_PUBLIC_TRACKING_MAP_MATCHING_ENABLED === "true";
 
-const FALLBACK_CENTER: [number, number] = [-34.6037, -58.3816];
+interface MapMatchingApiResponse {
+  points?: TrackPoint[];
+  provider?: string;
+  isFallback?: boolean;
+  reason?: string;
+}
 
 function buildTrackingProfile(quality: TrackingQuality): {
   config: GpsFilterConfig;
@@ -221,39 +231,40 @@ function LiveTrackingMap({
   activeSegment: SegmentDefinition | null;
 }) {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<maplibregl.Map | null>(null);
-  const routeSource = useRef<maplibregl.GeoJSONSource | null>(null);
-  const currentMarker = useRef<maplibregl.Marker | null>(null);
-  const segmentSource = useRef<maplibregl.GeoJSONSource | null>(null);
+  const map = useRef<mapboxgl.Map | null>(null);
+  const routeSource = useRef<mapboxgl.GeoJSONSource | null>(null);
+  const currentMarker = useRef<mapboxgl.Marker | null>(null);
+  const segmentSource = useRef<mapboxgl.GeoJSONSource | null>(null);
 
   // Initialize map
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
+    const token = getMapboxToken();
     const containerElement = mapContainer.current;
 
     getUserLocation().then((center) => {
-      map.current = new maplibregl.Map({
+      // Configure Mapbox token
+      if (token) {
+        mapboxgl.accessToken = token;
+      }
+
+      map.current = new mapboxgl.Map({
         container: containerElement,
-        style: {
-          version: 8,
-          sources: {
-            "carto-voyager": {
-              type: "raster",
-              tiles: [TILE_LAYER.url],
-              tileSize: 256,
-              attribution: TILE_LAYER.attribution,
-            },
-          },
-          layers: [{ id: "base", type: "raster", source: "carto-voyager", minzoom: 0 }],
-        },
+        style: resolveMapStyle(token),
         center,
         zoom: 14,
       });
 
       map.current.on("load", () => {
-        map.current?.addControl(new maplibregl.NavigationControl(), "top-right");
-        map.current?.addControl(new maplibregl.GeolocateControl({ trackUserLocation: true }), "top-right");
+        map.current?.addControl(new mapboxgl.NavigationControl(), "top-right");
+        map.current?.addControl(new mapboxgl.GeolocateControl({ trackUserLocation: true }), "top-right");
+        
+        // Add attribution
+        map.current?.addControl(
+          new mapboxgl.AttributionControl({ compact: true }),
+          "bottom-right"
+        );
 
         // Add route source
         map.current?.addSource("live-route", {
@@ -266,7 +277,7 @@ function LiveTrackingMap({
           type: "line",
           source: "live-route",
           layout: { "line-join": "round", "line-cap": "round" },
-          paint: { "line-color": "#ffffff", "line-width": 6, "line-opacity": 0.6 },
+          paint: { "line-color": "#ffffff", "line-width": ROUTE_WIDTHS.liveOutline, "line-opacity": 0.6 },
         });
 
         map.current?.addLayer({
@@ -274,10 +285,10 @@ function LiveTrackingMap({
           type: "line",
           source: "live-route",
           layout: { "line-join": "round", "line-cap": "round" },
-          paint: { "line-color": "#0d9488", "line-width": 4, "line-opacity": 0.9 },
+          paint: { "line-color": ROUTE_COLORS.live, "line-width": ROUTE_WIDTHS.live, "line-opacity": 0.9 },
         });
 
-        routeSource.current = map.current?.getSource("live-route") as maplibregl.GeoJSONSource;
+        routeSource.current = map.current?.getSource("live-route") as mapboxgl.GeoJSONSource;
 
         // Add segment source
         map.current?.addSource("segment-route", {
@@ -290,10 +301,10 @@ function LiveTrackingMap({
           type: "line",
           source: "segment-route",
           layout: { "line-join": "round", "line-cap": "round" },
-          paint: { "line-color": "#f59e0b", "line-width": 3, "line-opacity": 0.7, "line-dasharray": [2, 1] },
+          paint: { "line-color": ROUTE_COLORS.segment, "line-width": 3, "line-opacity": 0.7, "line-dasharray": [2, 1] },
         });
 
-        segmentSource.current = map.current?.getSource("segment-route") as maplibregl.GeoJSONSource;
+        segmentSource.current = map.current?.getSource("segment-route") as mapboxgl.GeoJSONSource;
       });
     });
 
@@ -318,8 +329,8 @@ function LiveTrackingMap({
     // Fit bounds to route
     if (map.current && route.length > 1) {
       const bounds = route.reduce(
-        (b, coord) => b.extend(coord as any),
-        new maplibregl.LngLatBounds(route[0], route[0])
+        (b, coord) => b.extend(coord as [number, number]),
+        new mapboxgl.LngLatBounds(route[0], route[0])
       );
       map.current.fitBounds(bounds, { padding: 50, maxZoom: 16 });
     }
@@ -332,7 +343,7 @@ function LiveTrackingMap({
     if (!currentMarker.current) {
       const el = document.createElement("div");
       el.className = "w-4 h-4 rounded-full bg-brand-600 border-2 border-white shadow-lg animate-pulse";
-      currentMarker.current = new maplibregl.Marker({ element: el }).addTo(map.current);
+      currentMarker.current = new mapboxgl.Marker({ element: el }).addTo(map.current);
     }
 
     currentMarker.current.setLngLat(currentPosition);
@@ -400,6 +411,33 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
 
   const isRecording = status === "recording";
   const hasLiveFix = lastFixAt !== null && Date.now() - lastFixAt <= 8000;
+
+  const maybeMapMatchTrace = useCallback(async (points: TrackPoint[]): Promise<TrackPoint[]> => {
+    if (!MAP_MATCHING_ENABLED || points.length < 2) {
+      return points;
+    }
+
+    try {
+      const response = await fetch("/api/routing/map-match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ points, rolloutKey: riderId })
+      });
+
+      if (!response.ok) {
+        return points;
+      }
+
+      const data = (await response.json()) as MapMatchingApiResponse;
+      if (!Array.isArray(data.points) || data.points.length !== points.length) {
+        return points;
+      }
+
+      return data.points;
+    } catch {
+      return points;
+    }
+  }, [riderId]);
 
   // Load segments on mount
   useEffect(() => {
@@ -562,7 +600,8 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
     setPanelMessage("Guardando rodada...");
 
     try {
-      await service.saveRidePoints(rideIdRef.current, allPoints);
+      const pointsToPersist = await maybeMapMatchTrace(allPoints);
+      await service.saveRidePoints(rideIdRef.current, pointsToPersist);
       
       if (attempts.length > 0) {
         await service.saveSegmentAttempts(

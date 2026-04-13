@@ -37,6 +37,7 @@ export default async function SegmentDetailPage({ params }: { params: Promise<{ 
             [segment.startLng, segment.startLat],
             [segment.endLng, segment.endLat]
           ];
+    
     const userRows = leaderboardRows.filter((row) => row.riderId === user.id);
     const pb = userRows.length ? userRows.reduce((best, row) => (row.elapsedTimeSec < best.elapsedTimeSec ? row : best), userRows[0]) : null;
     const avgUserElapsed = userRows.length

@@ -61,7 +61,6 @@ export default function RecordPage() {
           endLng: s.endLng,
           pathCoordinates: s.pathCoordinates,
         }));
-        console.log("[RecordPage] Segmentos cargados:", mappedSegments);
         setSegments(mappedSegments);
       } catch (error) {
         console.error("Error loading segments:", error);
@@ -115,18 +114,14 @@ export default function RecordPage() {
   if (selectedSegment) {
     if (selectedSegment.pathCoordinates && selectedSegment.pathCoordinates.length >= 2) {
       segmentCoordinates = selectedSegment.pathCoordinates;
-      console.log("[RecordPage] Usando pathCoordinates (ruta completa)");
     } else {
       // Fallback: use start/end points as a simple line
       segmentCoordinates = [
         [selectedSegment.startLng, selectedSegment.startLat],
         [selectedSegment.endLng, selectedSegment.endLat]
       ];
-      console.log("[RecordPage] Usando fallback (línea start→end)");
     }
   }
-
-  console.log("[RecordPage] segmentCoordinates para mapa:", segmentCoordinates);
 
   return (
     <div className="space-y-4 overflow-x-hidden">

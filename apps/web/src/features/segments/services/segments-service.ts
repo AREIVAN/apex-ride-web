@@ -19,7 +19,7 @@ export function createSegmentsService(client: SupabaseClient<Database>): Segment
     async listPublic() {
       const { data, error } = await client
         .from("segments")
-        .select("*")
+        .select("*, geom")
         .eq("visibility", "public")
         .order("created_at", { ascending: false });
 
@@ -29,7 +29,7 @@ export function createSegmentsService(client: SupabaseClient<Database>): Segment
 
     async getById(segmentId) {
       const safeSegmentId = segmentIdSchema.parse(segmentId);
-      const { data, error } = await client.from("segments").select("*").eq("id", safeSegmentId).maybeSingle();
+      const { data, error } = await client.from("segments").select("*, geom").eq("id", safeSegmentId).maybeSingle();
       if (error) throw new Error(`Unable to load segment: ${error.message}`);
       return data ? mapSegmentRow(data) : null;
     },
@@ -47,8 +47,7 @@ export function createSegmentsService(client: SupabaseClient<Database>): Segment
             // PostGIS expects coordinates as [x, y] = [lng, lat]
             geom = `LINESTRING(${coords.map((c: number[]) => `${c[0]} ${c[1]}`).join(', ')})`;
           }
-        } catch (e) {
-          console.error("Error parsing routeGeometry:", e);
+        } catch {
         }
       }
 
@@ -68,7 +67,7 @@ export function createSegmentsService(client: SupabaseClient<Database>): Segment
           end_lng: payload.endLng,
           geom: geom, // PostGIS LineString
         })
-        .select("*")
+        .select("*, geom")
         .single();
 
       if (error) throw new Error(`Unable to create segment: ${error.message}`);

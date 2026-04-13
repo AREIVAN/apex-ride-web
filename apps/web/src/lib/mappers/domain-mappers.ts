@@ -40,39 +40,88 @@ export function mapSegmentRow(row: SegmentRow): Segment {
   };
 }
 
-function parseLineCoordinates(geom: unknown): [number, number][] | undefined {
-  // Handle null/undefined
+export function parseLineCoordinates(geom: unknown): [number, number][] | undefined {
   if (!geom) return undefined;
 
-  // Case 1: String (WKT format from Supabase, e.g., "LINESTRING(-58.3 -34.6, -58.4 -34.7)")
+  if (Array.isArray(geom)) {
+    return parseCoordinateArray(geom);
+  }
+
   if (typeof geom === "string") {
-    const wktMatch = geom.match(/LINESTRING\(([^)]+)\)/);
-    if (wktMatch) {
-      const coordsStr = wktMatch[1];
-      const coords = coordsStr.split(",").map((c) => {
-        const parts = c.trim().split(/\s+/);
-        if (parts.length >= 2) {
-          const lng = Number(parts[0]);
-          const lat = Number(parts[1]);
-          if (Number.isFinite(lng) && Number.isFinite(lat)) {
-            return [lng, lat] as [number, number];
-          }
-        }
-        return null;
-      }).filter((c): c is [number, number] => c !== null);
-      
-      return coords.length >= 2 ? coords : undefined;
+    const trimmed = geom.trim();
+
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        return parseLineCoordinates(JSON.parse(trimmed));
+      } catch {
+        return undefined;
+      }
     }
+
+    const wktCoords = parseWktLineString(trimmed);
+    if (wktCoords) return wktCoords;
+
+    const ewkbCoords = parseEwkbLineString(trimmed);
+    if (ewkbCoords) return ewkbCoords;
+
     return undefined;
   }
 
-  // Case 2: Object (GeoJSON format)
   if (typeof geom !== "object") return undefined;
 
-  const maybeGeo = geom as { coordinates?: unknown };
-  if (!Array.isArray(maybeGeo.coordinates)) return undefined;
+  const geojsonCoords = parseGeoJsonCoordinates(geom);
+  if (geojsonCoords) return geojsonCoords;
 
-  const parsed = maybeGeo.coordinates
+  const maybeGeo = geom as { coordinates?: unknown };
+  return parseCoordinateArray(maybeGeo.coordinates);
+}
+
+function parseWktLineString(value: string): [number, number][] | undefined {
+  const normalized = value.replace(/^SRID=\d+;/i, "");
+  const wktMatch = normalized.match(/LINESTRING\s*(?:Z|M|ZM)?\s*\(([^)]+)\)/i);
+  if (!wktMatch) return undefined;
+
+  const coords = wktMatch[1]
+    .split(",")
+    .map((coordinate) => {
+      const parts = coordinate.trim().split(/\s+/);
+      if (parts.length < 2) return null;
+
+      const lng = Number(parts[0]);
+      const lat = Number(parts[1]);
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+
+      return [lng, lat] as [number, number];
+    })
+    .filter((coordinate): coordinate is [number, number] => coordinate !== null);
+
+  return coords.length >= 2 ? coords : undefined;
+}
+
+function parseGeoJsonCoordinates(geom: unknown): [number, number][] | undefined {
+  if (!geom || typeof geom !== "object") return undefined;
+
+  const maybeGeo = geom as {
+    type?: unknown;
+    geometry?: unknown;
+    coordinates?: unknown;
+  };
+
+  if (maybeGeo.type === "Feature" && maybeGeo.geometry) {
+    return parseGeoJsonCoordinates(maybeGeo.geometry);
+  }
+
+  if (maybeGeo.type === "LineString" && maybeGeo.coordinates) {
+    return parseCoordinateArray(maybeGeo.coordinates);
+  }
+
+  return undefined;
+}
+
+function parseCoordinateArray(coordinates: unknown): [number, number][] | undefined {
+  if (!Array.isArray(coordinates)) return undefined;
+
+  const parsed = coordinates
     .map((coordinate) => {
       if (!Array.isArray(coordinate) || coordinate.length < 2) return null;
       const lng = Number(coordinate[0]);
@@ -82,7 +131,67 @@ function parseLineCoordinates(geom: unknown): [number, number][] | undefined {
     })
     .filter((coordinate): coordinate is [number, number] => Boolean(coordinate));
 
-  return parsed.length ? parsed : undefined;
+  return parsed.length >= 2 ? parsed : undefined;
+}
+
+function parseEwkbLineString(value: string): [number, number][] | undefined {
+  const hex = value.startsWith("\\x") ? value.slice(2) : value;
+  if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length < 18 || hex.length % 2 !== 0) {
+    return undefined;
+  }
+
+  const bytes = hexToBytes(hex);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 0;
+
+  const littleEndianFlag = view.getUint8(offset);
+  const littleEndian = littleEndianFlag === 1;
+  if (!littleEndian && littleEndianFlag !== 0) return undefined;
+  offset += 1;
+
+  const geometryType = view.getUint32(offset, littleEndian);
+  offset += 4;
+
+  const hasZ = (geometryType & 0x80000000) !== 0;
+  const hasM = (geometryType & 0x40000000) !== 0;
+  const hasSrid = (geometryType & 0x20000000) !== 0;
+  const baseType = geometryType & 0x000000ff;
+  if (baseType !== 2) return undefined;
+
+  if (hasSrid) {
+    offset += 4;
+  }
+
+  const pointCount = view.getUint32(offset, littleEndian);
+  offset += 4;
+  if (pointCount < 2) return undefined;
+
+  const dimensions = 2 + (hasZ ? 1 : 0) + (hasM ? 1 : 0);
+  const coordinates: [number, number][] = [];
+
+  for (let index = 0; index < pointCount; index += 1) {
+    if (offset + dimensions * 8 > view.byteLength) return undefined;
+
+    const lng = view.getFloat64(offset, littleEndian);
+    const lat = view.getFloat64(offset + 8, littleEndian);
+
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+      return undefined;
+    }
+
+    coordinates.push([lng, lat]);
+    offset += dimensions * 8;
+  }
+
+  return coordinates;
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < hex.length; index += 2) {
+    bytes[index / 2] = Number.parseInt(hex.slice(index, index + 2), 16);
+  }
+  return bytes;
 }
 
 export function mapProfileRow(row: ProfileRow): RiderProfile {

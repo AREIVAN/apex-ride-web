@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 import { logoutAction } from "@/features/auth/actions/logout-action";
 import { Button } from "@/features/shared/ui/button";
@@ -14,9 +15,12 @@ export function Topbar({ riderEmail, isAdmin = false }: TopbarProps) {
     <header className="glass-topbar sticky top-0 z-20 border-b px-3 py-2.5 sm:px-6 lg:px-8 lg:py-3">
       <div className="mx-auto max-w-7xl">
         <div className="flex items-center justify-between gap-3 lg:hidden">
-          <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-600">Apex Ride</p>
-            <h1 className="truncate text-base font-bold text-slate-900">Centro</h1>
+          <div className="flex min-w-0 items-center gap-2">
+            <Image src="/32x32.png" alt="Apex Ride" width={20} height={20} className="rounded" priority />
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-600">Apex Ride</p>
+              <h1 className="truncate text-base font-bold text-slate-900">Centro</h1>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Link

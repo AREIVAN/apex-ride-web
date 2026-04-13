@@ -1,16 +1,21 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, startTransition } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
-import maplibregl from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
+import mapboxgl from "mapbox-gl";
+import "mapbox-gl/dist/mapbox-gl.css";
 
 import { Button } from "@/features/shared/ui/button";
 import { Card } from "@/features/shared/ui/card";
 import { Input } from "@/features/shared/ui/input";
 
 import { createSegmentAction, type CreateSegmentActionState } from "../actions/create-segment-action";
+import {
+  ROUTE_COLORS,
+  getMapboxToken,
+  resolveMapStyle,
+} from "@/features/maps/lib/map-config";
 
 interface Waypoint {
   id: string;
@@ -24,12 +29,7 @@ interface SegmentCreatorMapProps {
   onWaypointsChange: (waypoints: Waypoint[]) => void;
 }
 
-const TILE_LAYER = {
-  url: "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-  attribution: '&copy; OpenStreetMap &copy; CARTO',
-};
-
-const FALLBACK_CENTER: [number, number] = [-34.6037, -58.3816];
+const FALLBACK_CENTER: [number, number] = [-58.3816, -34.6037];
 
 function getUserLocation(): Promise<[number, number]> {
   return new Promise((resolve) => {
@@ -47,8 +47,8 @@ function getUserLocation(): Promise<[number, number]> {
 
 export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreatorMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<maplibregl.Map | null>(null);
-  const markers = useRef<maplibregl.Marker[]>([]);
+  const map = useRef<mapboxgl.Map | null>(null);
+  const markers = useRef<mapboxgl.Marker[]>([]);
   const waypointsRef = useRef(waypoints);
   const onWaypointsChangeRef = useRef(onWaypointsChange);
   const [routeGeometry, setRouteGeometry] = useState<[number, number][]>([]);
@@ -63,12 +63,11 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
     onWaypointsChangeRef.current = onWaypointsChange;
   }, [onWaypointsChange]);
 
-  // Fetch route from our API which calls OSRM server-side
+  // Fetch ideal route from server-side routing providers (Mapbox/OSRM fallback)
   const fetchRoute = useCallback(async () => {
     if (waypoints.length < 2) return;
 
     setIsLoadingRoute(true);
-    console.log("[SegmentCreatorMap] Fetching route for waypoints:", waypoints);
 
     try {
       const response = await fetch("/api/osrm", {
@@ -78,18 +77,14 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
       });
 
       const data = await response.json();
-      console.log("[SegmentCreatorMap] Route API response:", data);
 
       if (data.route && data.route.length > 0) {
         setRouteGeometry(data.route);
-        console.log("[SegmentCreatorMap] Route geometry set:", data.route.length, "points");
       } else {
-        console.warn("[SegmentCreatorMap] No route in response, using waypoints directly");
         const directRoute = waypoints.map(wp => [wp.lng, wp.lat] as [number, number]);
         setRouteGeometry(directRoute);
       }
-    } catch (error) {
-      console.error("[SegmentCreatorMap] Route fetch error:", error);
+    } catch {
       // Fallback: use waypoints directly
       const directRoute = waypoints.map(wp => [wp.lng, wp.lat] as [number, number]);
       setRouteGeometry(directRoute);
@@ -103,35 +98,35 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
     if (!mapContainer.current || map.current) return;
 
     let isMounted = true;
+    const token = getMapboxToken();
 
     getUserLocation().then((center) => {
       if (!isMounted || !mapContainer.current) return;
 
-      map.current = new maplibregl.Map({
+      // Configure Mapbox token
+      if (token) {
+        mapboxgl.accessToken = token;
+      }
+
+      map.current = new mapboxgl.Map({
         container: mapContainer.current,
-        style: {
-          version: 8,
-          sources: {
-            "carto-voyager": {
-              type: "raster",
-              tiles: [TILE_LAYER.url],
-              tileSize: 256,
-              attribution: TILE_LAYER.attribution,
-            },
-          },
-          layers: [{ id: "base", type: "raster", source: "carto-voyager", minzoom: 0 }],
-        },
+        style: resolveMapStyle(token),
         center,
         zoom: 12,
       });
 
       map.current.on("load", () => {
-        map.current?.addControl(new maplibregl.NavigationControl(), "top-right");
-        map.current?.addControl(new maplibregl.GeolocateControl({ trackUserLocation: true }), "top-right");
-      });
+        map.current?.addControl(new mapboxgl.NavigationControl(), "top-right");
+        map.current?.addControl(new mapboxgl.GeolocateControl({ trackUserLocation: true }), "top-right");
+        
+        // Add attribution
+        map.current?.addControl(
+          new mapboxgl.AttributionControl({ compact: true }),
+          "bottom-right"
+        );
 
-      // Use ref to get current waypoints
-        map.current.on("click", (e) => {
+        // Use ref to get current waypoints
+        map.current?.on("click", (e) => {
           const currentWaypoints = waypointsRef.current;
           const newWaypoint: Waypoint = {
             id: `wp-${Date.now()}`,
@@ -142,6 +137,8 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
           onWaypointsChangeRef.current([...currentWaypoints, newWaypoint]);
         });
       });
+
+    });
 
     return () => {
       isMounted = false;
@@ -173,7 +170,7 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
         el.innerHTML = `<div class="w-5 h-5 rounded-full bg-brand-600 border-2 border-white shadow-lg flex items-center justify-center text-white text-xs font-bold">${index + 1}</div>`;
       }
 
-      const marker = new maplibregl.Marker({ element: el, draggable: true })
+      const marker = new mapboxgl.Marker({ element: el, draggable: true })
         .setLngLat([wp.lng, wp.lat])
         .addTo(map.current!);
 
@@ -202,7 +199,7 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
     const sourceId = "segment-route";
 
     if (map.current.getSource(sourceId)) {
-      (map.current.getSource(sourceId) as maplibregl.GeoJSONSource).setData({
+      (map.current.getSource(sourceId) as mapboxgl.GeoJSONSource).setData({
         type: "Feature",
         properties: {},
         geometry: { type: "LineString", coordinates: routeGeometry },
@@ -226,7 +223,7 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
         type: "line",
         source: sourceId,
         layout: { "line-join": "round", "line-cap": "round" },
-        paint: { "line-color": "#0d9488", "line-width": 5, "line-opacity": 0.8 },
+        paint: { "line-color": ROUTE_COLORS.ride, "line-width": 5, "line-opacity": 0.8 },
       });
     }
   }, [routeGeometry]);
@@ -275,7 +272,7 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
                   ×
                 </button>
              </span>
-           ))}
+          ))}
              <button
                type="button"
                onClick={clearAll}
@@ -283,7 +280,7 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
              >
               Limpiar
             </button>
-         </div>
+       </div>
       )}
     </div>
   );
@@ -314,7 +311,7 @@ export function SegmentCreateForm() {
   const [visibility, setVisibility] = useState("public");
   const [formKey, setFormKey] = useState(0);
 
-  // Update route geometry when waypoints change - call our API which uses OSRM server-side
+  // Update route geometry when waypoints change using server-side routing API
   useEffect(() => {
     async function fetchRouteFromApi() {
       if (waypoints.length < 2) {
@@ -333,14 +330,12 @@ export function SegmentCreateForm() {
 
         if (data.route && data.route.length > 0) {
           setRouteGeometry(data.route);
-          console.log("[SegmentCreateForm] Route geometry set:", data.route.length, "points");
         } else {
           // Fallback: use waypoints directly
           const directRoute = waypoints.map(wp => [wp.lng, wp.lat] as [number, number]);
           setRouteGeometry(directRoute);
         }
-      } catch (error) {
-        console.error("[SegmentCreateForm] Route fetch error:", error);
+      } catch {
         // Fallback: use waypoints directly
         const directRoute = waypoints.map(wp => [wp.lng, wp.lat] as [number, number]);
         setRouteGeometry(directRoute);
@@ -358,8 +353,11 @@ export function SegmentCreateForm() {
     formData.set("waypoints", JSON.stringify(waypoints));
     formData.set("routeGeometry", JSON.stringify(routeGeometry));
     formData.set("distanceM", distance.toString());
-    startTransition(() => {
-      formAction(formData);
+    // Use startTransition from react (already imported via useActionState)
+    import("react").then(({ startTransition }) => {
+      startTransition(() => {
+        formAction(formData);
+      });
     });
   };
 

@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 const PRODUCT_LINKS = [
@@ -27,7 +28,7 @@ export function Footer() {
         <div className="md:col-span-1">
           <Link href="/" className="inline-flex items-center gap-2 text-asphalt-900">
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-asphalt-900 text-xs font-bold tracking-[0.16em] text-white">
-              AR
+              <Image src="/logo.png" alt="Apex Ride" width={22} height={22} className="h-[22px] w-[22px] rounded-full" priority />
             </span>
             <span className="font-[var(--font-heading)] text-base font-semibold tracking-[0.08em]">APEX RIDE</span>
           </Link>

@@ -2,17 +2,25 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import maplibregl from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
+import mapboxgl from "mapbox-gl";
+import "mapbox-gl/dist/mapbox-gl.css";
 
 import { Card } from "@/features/shared/ui/card";
+import {
+  MAP_DEFAULTS,
+  ROUTE_COLORS,
+  ROUTE_WIDTHS,
+  filterValidCoordinates,
+  getMapboxToken,
+  resolveMapStyle,
+} from "../lib/map-config";
 
 interface MapContainerProps {
   title?: string;
   center?: [number, number];
   zoom?: number;
   showControls?: boolean;
-  onMapReady?: (map: maplibregl.Map) => void;
+  onMapReady?: (map: mapboxgl.Map) => void;
   useUserLocation?: boolean;
   routeCoordinates?: [number, number][];
   segmentCoordinates?: [number, number][];
@@ -20,16 +28,8 @@ interface MapContainerProps {
   focusOnSegment?: boolean;
 }
 
-const DEFAULT_ZOOM = 12;
-
-// Tile server configuration - production ready
-const TILE_LAYER = {
-  url: "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  maxZoom: 20,
-};
-
-const FALLBACK_CENTER: [number, number] = [-34.6037, -58.3816]; // Buenos Aires
+const DEFAULT_ZOOM = MAP_DEFAULTS.zoom;
+const FALLBACK_CENTER = MAP_DEFAULTS.center;
 
 // Get user's current location
 function getUserLocation(): Promise<[number, number]> {
@@ -64,25 +64,26 @@ export function MapContainer({
   focusOnSegment = true,
 }: MapContainerProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<maplibregl.Map | null>(null);
+  const map = useRef<mapboxgl.Map | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const getUserLocationFn = useRef<() => Promise<[number, number]>>(getUserLocation);
 
   const safeRouteCoordinates = useMemo(
-    () => routeCoordinates?.filter(isValidCoordinate) ?? [],
+    () => routeCoordinates ? filterValidCoordinates(routeCoordinates) : [],
     [routeCoordinates]
   );
   const safeSegmentCoordinates = useMemo(
-    () => segmentCoordinates?.filter(isValidCoordinate) ?? [],
+    () => segmentCoordinates ? filterValidCoordinates(segmentCoordinates) : [],
     [segmentCoordinates]
   );
-
+  
   useEffect(() => {
     // Skip if map already initialized or no container
     if (!mapContainer.current || map.current) return;
 
     let isMounted = true;
+    const token = getMapboxToken();
 
     async function initializeMap() {
       // Get user location if not provided and enabled
@@ -99,29 +100,14 @@ export function MapContainer({
       if (!containerElement) return;
 
       try {
-        map.current = new maplibregl.Map({
+        // Configure Mapbox with token
+        if (token) {
+          mapboxgl.accessToken = token;
+        }
+
+        map.current = new mapboxgl.Map({
           container: containerElement,
-          style: {
-            version: 8,
-            sources: {
-              "carto-voyager": {
-                type: "raster",
-                tiles: [TILE_LAYER.url],
-                tileSize: 256,
-                attribution: TILE_LAYER.attribution,
-                maxzoom: TILE_LAYER.maxZoom,
-              },
-            },
-            layers: [
-              {
-                id: "carto-voyager-layer",
-                type: "raster",
-                source: "carto-voyager",
-                minzoom: 0,
-                maxzoom: 20,
-              },
-            ],
-          },
+          style: resolveMapStyle(token),
           center: mapCenter,
           zoom,
           attributionControl: false,
@@ -141,9 +127,15 @@ export function MapContainer({
         });
 
         if (showControls) {
-          map.current.addControl(new maplibregl.NavigationControl(), "top-right");
-          map.current.addControl(new maplibregl.GeolocateControl({ trackUserLocation: true }), "top-right");
+          map.current.addControl(new mapboxgl.NavigationControl(), "top-right");
+          map.current.addControl(new mapboxgl.GeolocateControl({ trackUserLocation: true }), "top-right");
         }
+
+        // Add attribution control
+        map.current.addControl(
+          new mapboxgl.AttributionControl({ compact: true }),
+          "bottom-right"
+        );
       } catch (error) {
         console.error("Map initialization error:", error);
         setMapError("Error al inicializar el mapa");
@@ -159,7 +151,7 @@ export function MapContainer({
         map.current = null;
       }
     };
-  }, [center, zoom, showControls, onMapReady, useUserLocation, routeCoordinates, segmentCoordinates]);
+  }, [center, zoom, showControls, onMapReady, useUserLocation]);
 
   // Draw ride route on map
   useEffect(() => {
@@ -172,10 +164,10 @@ export function MapContainer({
         sourceId: "ride-route",
         layerId: "ride-route-layer",
         coordinates: safeRouteCoordinates,
-        color: "#0d9488",
-        width: 4.5,
-        outlineColor: "#ffffff",
-        outlineWidth: 8
+        color: ROUTE_COLORS.ride,
+        width: ROUTE_WIDTHS.standard,
+        outlineColor: ROUTE_COLORS.outline,
+        outlineWidth: ROUTE_WIDTHS.outline,
       });
 
       fitToCoordinates(map.current, safeRouteCoordinates, 60, 16);
@@ -187,23 +179,20 @@ export function MapContainer({
 
   // Draw segment route on map
   useEffect(() => {
-    console.log("[MapContainer] segmentCoordinates recibidos:", safeSegmentCoordinates);
     if (!map.current || !safeSegmentCoordinates.length) return;
 
     const drawSegment = () => {
       if (!map.current) return;
-
-      console.log("[MapContainer] Dibujando segmento con coords:", safeSegmentCoordinates);
 
       upsertLineLayer({
         map: map.current,
         sourceId: "segment-route",
         layerId: "segment-route-layer",
         coordinates: safeSegmentCoordinates,
-        color: "#f59e0b",
-        width: 5,
-        outlineColor: "#ffffff",
-        outlineWidth: 8
+        color: ROUTE_COLORS.segment,
+        width: ROUTE_WIDTHS.segment,
+        outlineColor: ROUTE_COLORS.outline,
+        outlineWidth: ROUTE_WIDTHS.outline,
       });
 
       fitToCoordinates(map.current, safeSegmentCoordinates, 50, 15);
@@ -231,9 +220,9 @@ export function MapContainer({
       const startEl = document.createElement("div");
       startEl.id = "segment-marker-start";
       startEl.className = "w-5 h-5 rounded-full bg-emerald-500 border-2 border-white shadow-lg";
-      new maplibregl.Marker({ element: startEl })
+      new mapboxgl.Marker({ element: startEl })
         .setLngLat(startCoord)
-        .setPopup(new maplibregl.Popup({ offset: 25 }).setHTML('<div class="text-sm font-medium text-slate-900">Inicio</div>'))
+        .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML('<div class="text-sm font-medium text-slate-900">Inicio</div>'))
         .addTo(map.current);
 
       // End marker (red)
@@ -241,9 +230,9 @@ export function MapContainer({
       const endEl = document.createElement("div");
       endEl.id = "segment-marker-end";
       endEl.className = "w-5 h-5 rounded-full bg-rose-500 border-2 border-white shadow-lg";
-      new maplibregl.Marker({ element: endEl })
+      new mapboxgl.Marker({ element: endEl })
         .setLngLat(endCoord)
-        .setPopup(new maplibregl.Popup({ offset: 25 }).setHTML('<div class="text-sm font-medium text-slate-900">Fin</div>'))
+        .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML('<div class="text-sm font-medium text-slate-900">Fin</div>'))
         .addTo(map.current);
     };
 
@@ -270,8 +259,8 @@ export function MapContainer({
       if (map.current) {
         map.current.flyTo({
           center: location,
-          zoom: 16, // Street-level zoom
-          duration: 1000,
+          zoom: MAP_DEFAULTS.zoomStreet,
+          duration: MAP_DEFAULTS.flyDuration,
         });
       }
     }
@@ -311,14 +300,8 @@ export function MapContainer({
   );
 }
 
-function isValidCoordinate(coordinate: [number, number] | undefined): coordinate is [number, number] {
-  if (!coordinate) return false;
-  const [lng, lat] = coordinate;
-  return Number.isFinite(lng) && Number.isFinite(lat);
-}
-
 function upsertLineLayer(params: {
-  map: maplibregl.Map;
+  map: mapboxgl.Map;
   sourceId: string;
   layerId: string;
   coordinates: [number, number][];
@@ -336,7 +319,7 @@ function upsertLineLayer(params: {
   } as const;
 
   if (map.getSource(sourceId)) {
-    (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(data);
+    (map.getSource(sourceId) as mapboxgl.GeoJSONSource).setData(data);
     return;
   }
 
@@ -360,7 +343,7 @@ function upsertLineLayer(params: {
 }
 
 function fitToCoordinates(
-  map: maplibregl.Map,
+  map: mapboxgl.Map,
   coordinates: [number, number][],
   padding: number,
   maxZoom: number
@@ -369,23 +352,23 @@ function fitToCoordinates(
 
   const bounds = coordinates.reduce(
     (b, c) => b.extend(c),
-    new maplibregl.LngLatBounds(coordinates[0], coordinates[0])
+    new mapboxgl.LngLatBounds(coordinates[0], coordinates[0])
   );
   map.fitBounds(bounds, { padding, maxZoom });
 }
 
 // Utility function to add a route polyline to the map
 export function addRouteToMap(
-  map: maplibregl.Map,
+  map: mapboxgl.Map,
   coordinates: [number, number][],
-  color: string = "#0d9488",
-  lineWidth: number = 4
+  color: string = ROUTE_COLORS.ride,
+  lineWidth: number = ROUTE_WIDTHS.standard
 ) {
   const sourceId = "route-source";
   const layerId = "route-layer";
 
   if (map.getSource(sourceId)) {
-    (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData({
+    (map.getSource(sourceId) as mapboxgl.GeoJSONSource).setData({
       type: "Feature",
       properties: {},
       geometry: {
@@ -425,7 +408,7 @@ export function addRouteToMap(
 
 // Utility function to add markers to the map
 export function addMarkersToMap(
-  map: maplibregl.Map,
+  map: mapboxgl.Map,
   points: Array<{ coordinates: [number, number]; label?: string; color?: string }>
 ) {
   points.forEach((point, index) => {
@@ -436,13 +419,13 @@ export function addMarkersToMap(
     const el = document.createElement("div");
     el.id = markerId;
     el.className = "w-4 h-4 rounded-full border-2 border-white shadow-lg";
-    el.style.backgroundColor = point.color || "#0d9488";
+    el.style.backgroundColor = point.color || ROUTE_COLORS.ride;
 
-    new maplibregl.Marker({ element: el })
+    new mapboxgl.Marker({ element: el })
       .setLngLat(point.coordinates)
       .setPopup(
         point.label
-          ? new maplibregl.Popup({ offset: 25 }).setHTML(
+          ? new mapboxgl.Popup({ offset: 25 }).setHTML(
               `<div class="text-sm font-medium text-slate-900">${point.label}</div>`
             )
           : undefined
@@ -452,12 +435,12 @@ export function addMarkersToMap(
 }
 
 // Utility to fit map to coordinates
-export function fitMapToRoute(map: maplibregl.Map, coordinates: [number, number][], padding = 50) {
+export function fitMapToRoute(map: mapboxgl.Map, coordinates: [number, number][], padding = 50) {
   if (coordinates.length === 0) return;
 
   const bounds = coordinates.reduce(
     (bounds, coord) => bounds.extend(coord),
-    new maplibregl.LngLatBounds(coordinates[0], coordinates[0])
+    new mapboxgl.LngLatBounds(coordinates[0], coordinates[0])
   );
 
   map.fitBounds(bounds, { padding, maxZoom: 15 });

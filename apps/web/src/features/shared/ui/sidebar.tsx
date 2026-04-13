@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import Image from "next/image";
 
 import { cn } from "@/lib/utils/cn";
 import { navigationItems } from "./navigation-items";
@@ -16,7 +17,10 @@ export function Sidebar() {
         className="mb-8 block rounded-2xl bg-gradient-to-br from-asphalt-900 via-asphalt-800 to-asphalt-700 px-4 py-4 text-lg font-bold text-white shadow-[0_12px_28px_rgba(20,34,58,0.35)]"
       >
         <p className="text-[10px] uppercase tracking-[0.18em] text-white/70">Inteligencia de rodadas</p>
-        <p className="mt-1 text-xl">Apex Ride</p>
+        <div className="mt-1 flex items-center gap-2">
+          <Image src="/64x64.png" alt="Apex Ride" width={24} height={24} className="rounded" priority />
+          <p className="text-xl">Apex Ride</p>
+        </div>
       </Link>
       <nav className="space-y-1.5">
         {navigationItems.map((item) => {
