@@ -80,11 +80,11 @@ export function ProfileForm({ profile }: ProfileFormProps) {
         </label>
         <label className="space-y-1">
           <span className="text-sm font-semibold text-slate-700">Tipo de moto</span>
-          <select
-            name="preferredVehicleType"
-            defaultValue={profile.preferredVehicleType}
-            className="focus-ring min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900"
-          >
+            <select
+              name="preferredVehicleType"
+              defaultValue={profile.preferredVehicleType}
+              className="focus-ring min-h-11 w-full rounded-xl border border-slate-300/90 bg-white/95 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-brand-500 focus:shadow-[0_0_0_3px_rgba(20,136,198,0.14)]"
+            >
             <option value="motorcycle">Motorcycle</option>
             <option value="scooter">Scooter</option>
             <option value="mixed">Mixed</option>
@@ -118,12 +118,12 @@ export function ProfileForm({ profile }: ProfileFormProps) {
         </label>
         <label className="space-y-1 sm:col-span-2">
           <span className="text-sm font-semibold text-slate-700">Bio</span>
-          <textarea
-            name="bio"
-            defaultValue={profile.bio ?? ""}
-            rows={3}
-            className="focus-ring w-full rounded-xl border border-slate-300/90 bg-white/95 px-3.5 py-2.5 text-sm text-slate-900 outline-none"
-          />
+            <textarea
+              name="bio"
+              defaultValue={profile.bio ?? ""}
+              rows={3}
+              className="focus-ring w-full rounded-xl border border-slate-300/90 bg-white/95 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-brand-500 focus:shadow-[0_0_0_3px_rgba(20,136,198,0.14)]"
+            />
         </label>
         {success ? <p className="sm:col-span-2 text-sm font-semibold text-emerald-600">{success}</p> : null}
         {error ? <p className="sm:col-span-2 text-sm font-semibold text-rose-600">{error}</p> : null}

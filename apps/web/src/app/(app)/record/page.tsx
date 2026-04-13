@@ -116,9 +116,9 @@ export default function RecordPage() {
         title="Record"
         description="Panel de grabacion en vivo con mapa, metrica de velocidad y segmentos para intentos."
       />
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_390px]">
         {/* Map */}
-        <div className="order-2 h-[42vh] min-h-[280px] sm:h-[52vh] sm:min-h-[340px] xl:order-1 xl:h-[calc(100vh-210px)]">
+        <div className="order-2 h-[42vh] min-h-[280px] sm:h-[52vh] sm:min-h-[340px] lg:order-1 lg:h-[calc(100vh-210px)]">
           <MapContainer
             title={selectedSegment ? `Segmento: ${selectedSegment.name}` : "Mapa en vivo"}
             useUserLocation={true}
@@ -127,7 +127,7 @@ export default function RecordPage() {
         </div>
 
         {/* Recording Panel + Segments */}
-        <div className="order-1 space-y-4 xl:order-2">
+        <div className="order-1 space-y-4 lg:order-2">
           <RecordingPanel
             riderId={user.id}
             onMetricsUpdate={handleMetricsUpdate}
@@ -149,7 +149,7 @@ export default function RecordPage() {
               No hay segmentos disponibles
             </p>
           ) : (
-            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
               {segments.map((segment) => (
                 <button
                   key={segment.id}
@@ -160,9 +160,9 @@ export default function RecordPage() {
                       : 'bg-slate-50 hover:bg-slate-100 border border-slate-200'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-slate-900">{segment.name}</span>
-                    <span className="text-xs text-slate-500">{(segment.distanceM / 1000).toFixed(1)} km</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate font-medium text-slate-900">{segment.name}</span>
+                    <span className="shrink-0 text-xs text-slate-500">{(segment.distanceM / 1000).toFixed(1)} km</span>
                   </div>
                   {selectedSegment?.id === segment.id && (
                     <p className="text-xs text-brand-600 mt-1">✓ Segmento seleccionado - visible en el mapa</p>

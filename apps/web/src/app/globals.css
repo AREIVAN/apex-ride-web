@@ -36,6 +36,12 @@ body {
   color: var(--text-primary);
 }
 
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
 h1,
 h2,
 h3,
@@ -226,5 +232,12 @@ select {
     background:
       radial-gradient(circle at 20% -8%, rgba(34, 121, 199, 0.18) 0%, transparent 36%),
       linear-gradient(175deg, #f8fbfe 0%, var(--surface-bg) 52%, #dde5f0 100%);
+  }
+}
+
+@media (pointer: coarse) {
+  .maplibregl-ctrl-group button {
+    min-height: 44px;
+    min-width: 44px;
   }
 }

@@ -107,11 +107,11 @@ export function SettingsPanel({ userId, initialSettings }: SettingsPanelProps) {
 
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium text-slate-700">Privacidad de actividad</legend>
-          <select
-            value={activityVisibility ?? "public"}
-            onChange={(e) => setActivityVisibility(e.target.value as "public" | "club" | "private")}
-            className="focus-ring min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-          >
+            <select
+              value={activityVisibility ?? "public"}
+              onChange={(e) => setActivityVisibility(e.target.value as "public" | "club" | "private")}
+              className="focus-ring min-h-11 w-full rounded-xl border border-slate-300/90 bg-white/95 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-brand-500 focus:shadow-[0_0_0_3px_rgba(20,136,198,0.14)]"
+            >
             <option value="public">Publica</option>
             <option value="club">Solo mi club</option>
             <option value="private">Privada</option>
@@ -120,7 +120,7 @@ export function SettingsPanel({ userId, initialSettings }: SettingsPanelProps) {
 
         <fieldset className="space-y-3">
           <legend className="text-sm font-medium text-slate-700">Notificaciones</legend>
-          <label className="focus-ring flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 px-4 py-3">
+          <label className="focus-ring flex min-h-11 cursor-pointer items-center justify-between rounded-xl border border-slate-200 px-4 py-3">
             <span className="text-sm text-slate-700">Notificaciones de segmentos</span>
             <input
               type="checkbox"
@@ -133,7 +133,7 @@ export function SettingsPanel({ userId, initialSettings }: SettingsPanelProps) {
       </div>
 
       {message && (
-        <p className={`text-sm ${message.includes("correctamente") ? "text-emerald-600" : "text-rose-600"}`}>
+        <p role="status" className={`text-sm ${message.includes("correctamente") ? "text-emerald-600" : "text-rose-600"}`}>
           {message}
         </p>
       )}

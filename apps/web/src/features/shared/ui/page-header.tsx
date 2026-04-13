@@ -17,7 +17,7 @@ export function PageHeader({ title, description, actions, className, children }:
           <h2 className="section-title">{title}</h2>
           {description ? <p className="section-subtitle max-w-2xl">{description}</p> : null}
         </div>
-        {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
+        {actions ? <div className="flex w-full items-center gap-2 sm:w-auto">{actions}</div> : null}
       </div>
       {children ? <div className="mt-4">{children}</div> : null}
     </header>

@@ -10,8 +10,8 @@ interface AppShellProps extends PropsWithChildren {
 
 export function AppShell({ children, riderEmail, isAdmin = false }: AppShellProps) {
   return (
-    <div className="min-h-screen text-slate-900">
-      <div className="mx-auto flex w-full max-w-[1500px]">
+    <div className="min-h-screen overflow-x-clip text-slate-900">
+      <div className="mx-auto flex w-full max-w-[1500px] min-w-0">
         <Sidebar />
         <div className="min-w-0 flex-1">
           <Topbar riderEmail={riderEmail} isAdmin={isAdmin} />

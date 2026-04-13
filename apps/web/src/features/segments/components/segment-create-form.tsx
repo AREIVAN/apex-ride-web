@@ -257,18 +257,18 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
                 <button
                   type="button"
                   onClick={() => removeWaypoint(wp.id)}
-                  className="focus-ring ml-1 inline-flex min-h-8 min-w-8 items-center justify-center rounded-full text-[13px] leading-none hover:text-rose-500"
+                  className="focus-ring ml-1 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full text-[13px] leading-none hover:text-rose-500"
                   aria-label={`Quitar ${wp.label}`}
                 >
                   ×
                 </button>
              </span>
            ))}
-            <button
-              type="button"
-              onClick={clearAll}
-              className="focus-ring inline-flex min-h-9 items-center rounded-md px-2 text-xs font-semibold text-slate-500 underline underline-offset-2 hover:text-slate-700"
-            >
+             <button
+               type="button"
+               onClick={clearAll}
+               className="focus-ring inline-flex min-h-11 items-center rounded-md px-2 text-xs font-semibold text-slate-500 underline underline-offset-2 hover:text-slate-700"
+             >
               Limpiar
             </button>
          </div>

@@ -4,9 +4,9 @@ import type { Segment } from "@/types/domain";
 export function SegmentCard({ segment }: { segment: Segment }) {
   return (
     <Card className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-base font-semibold text-slate-900">{segment.name}</h3>
-        <span className="chip border-brand-200 bg-brand-100/85 uppercase text-brand-900">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="min-w-0 truncate text-base font-semibold text-slate-900">{segment.name}</h3>
+        <span className="chip shrink-0 border-brand-200 bg-brand-100/85 uppercase text-brand-900">
           {segment.visibility}
         </span>
       </div>

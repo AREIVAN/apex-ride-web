@@ -76,7 +76,7 @@ export function FlaggedAttemptsPanel({ initialAttempts, userId }: FlaggedAttempt
         <button
           type="button"
           onClick={() => setFilter("all")}
-          className={`focus-ring min-h-10 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+          className={`focus-ring min-h-11 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
             filter === "all"
               ? "bg-slate-900 text-white"
               : "bg-slate-100 text-slate-700 hover:bg-slate-200"
@@ -87,7 +87,7 @@ export function FlaggedAttemptsPanel({ initialAttempts, userId }: FlaggedAttempt
         <button
           type="button"
           onClick={() => setFilter("pending")}
-          className={`focus-ring min-h-10 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+          className={`focus-ring min-h-11 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
             filter === "pending"
               ? "bg-slate-900 text-white"
               : "bg-slate-100 text-slate-700 hover:bg-slate-200"
@@ -132,7 +132,7 @@ export function FlaggedAttemptsPanel({ initialAttempts, userId }: FlaggedAttempt
                 </span>
               </div>
 
-              <div className="mb-3 flex gap-4 text-sm text-slate-600">
+              <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600">
                 <span>
                   <span className="font-medium">Razon:</span>{" "}
                   {reasonLabels[attempt.reason] ?? attempt.reason}
@@ -159,11 +159,12 @@ export function FlaggedAttemptsPanel({ initialAttempts, userId }: FlaggedAttempt
               )}
 
               {attempt.status === "pending" && (
-                <div className="flex gap-2">
+                <div className="grid gap-2 sm:grid-cols-2">
                   <Button
                     variant="secondary"
                     onClick={() => handleResolve(attempt.id, "reviewed")}
                     disabled={updating === attempt.id}
+                    className="w-full"
                   >
                     {updating === attempt.id ? "Marcando..." : "Marcar revisado"}
                   </Button>
@@ -171,6 +172,7 @@ export function FlaggedAttemptsPanel({ initialAttempts, userId }: FlaggedAttempt
                     variant="destructive"
                     onClick={() => handleResolve(attempt.id, "resolved")}
                     disabled={updating === attempt.id}
+                    className="w-full"
                   >
                     {updating === attempt.id ? "Marcando..." : "Confirmar trampa"}
                   </Button>
