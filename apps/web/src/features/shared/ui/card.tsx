@@ -12,7 +12,7 @@ export function Card({ className, title, description, children }: CardProps) {
   return (
     <section
       className={cn(
-        "surface-panel interactive-lift rounded-2xl p-5",
+        "surface-panel interactive-lift p-5",
         className
       )}
     >

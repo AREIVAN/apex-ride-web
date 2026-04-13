@@ -195,12 +195,12 @@ export function MapContainer({
 
   return (
     <Card className="overflow-hidden p-0">
-      <div className="border-b border-slate-200/70 px-4 py-3">
+      <div className="border-b border-slate-200/70 bg-white/70 px-4 py-3">
         <h3 className="font-semibold text-slate-900">{title}</h3>
       </div>
-      <div className="relative h-80 w-full">
+      <div className="relative h-[320px] w-full sm:h-[360px] lg:h-[420px]">
         {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-100">
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-100/90 backdrop-blur-[1px]">
             <div className="flex flex-col items-center gap-2">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-300 border-t-brand-600" />
               <span className="text-sm text-slate-600">Cargando mapa...</span>
@@ -208,7 +208,7 @@ export function MapContainer({
           </div>
         )}
         {mapError && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-100">
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-100">
             <div className="text-center">
               <p className="text-sm font-medium text-rose-600">{mapError}</p>
               <p className="mt-1 text-xs text-slate-500">Verifica tu conexión a internet</p>

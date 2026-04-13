@@ -8,10 +8,10 @@ function formatMinutes(seconds: number): string {
 
 export function RideSummaryCard({ ride }: { ride: Ride }) {
   return (
-    <Card className="space-y-2">
+    <Card className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-base font-semibold text-slate-900">{ride.title}</h3>
-        <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">{ride.status}</span>
+        <span className="chip">{ride.status}</span>
       </div>
       <p className="text-sm text-slate-600">
         {ride.distanceKm.toFixed(1)} km · {ride.elevationGainM.toFixed(0)} m · {formatMinutes(ride.movingTimeSec)}

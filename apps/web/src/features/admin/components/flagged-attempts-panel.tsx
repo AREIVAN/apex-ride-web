@@ -72,11 +72,11 @@ export function FlaggedAttemptsPanel({ initialAttempts, userId }: FlaggedAttempt
         </p>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button
           type="button"
           onClick={() => setFilter("all")}
-          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+          className={`focus-ring min-h-10 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
             filter === "all"
               ? "bg-slate-900 text-white"
               : "bg-slate-100 text-slate-700 hover:bg-slate-200"
@@ -87,7 +87,7 @@ export function FlaggedAttemptsPanel({ initialAttempts, userId }: FlaggedAttempt
         <button
           type="button"
           onClick={() => setFilter("pending")}
-          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+          className={`focus-ring min-h-10 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
             filter === "pending"
               ? "bg-slate-900 text-white"
               : "bg-slate-100 text-slate-700 hover:bg-slate-200"
@@ -108,10 +108,7 @@ export function FlaggedAttemptsPanel({ initialAttempts, userId }: FlaggedAttempt
       ) : (
         <div className="space-y-3">
           {filteredAttempts.map((attempt) => (
-            <div
-              key={attempt.id}
-              className="rounded-lg border border-slate-200 p-4"
-            >
+            <div key={attempt.id} className="rounded-xl border border-slate-200 p-4">
               <div className="mb-2 flex items-start justify-between gap-2">
                 <div>
                   <p className="font-medium text-slate-900">

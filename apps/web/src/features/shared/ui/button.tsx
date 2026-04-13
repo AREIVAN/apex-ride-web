@@ -22,7 +22,7 @@ export function Button({ className, variant = "primary", children, ...props }: B
     <button
       className={cn(
         "focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold",
-        "interactive-lift transition-transform duration-200 ease-out active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0",
+        "interactive-lift whitespace-nowrap transition-transform duration-200 ease-out active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0",
         variantClasses[variant],
         className
       )}

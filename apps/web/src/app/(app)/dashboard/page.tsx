@@ -3,6 +3,7 @@ import { DashboardOverview } from "@/features/dashboard/components/dashboard-ove
 import { getDashboardSnapshot } from "@/features/dashboard/services/dashboard-service";
 import { MapContainer } from "@/features/maps/components/map-container";
 import { EmptyState } from "@/features/shared/ui/empty-state";
+import { PageHeader } from "@/features/shared/ui/page-header";
 
 export default async function DashboardPage() {
   const { client, user } = await requireUser();
@@ -12,6 +13,10 @@ export default async function DashboardPage() {
 
     return (
       <div className="space-y-6">
+        <PageHeader
+          title="Dashboard"
+          description="Seguimiento en tiempo real de actividad, desnivel acumulado e intentos de segmentos recientes."
+        />
         <DashboardOverview {...snapshot} />
         <MapContainer title="Mapa de calor de rodadas recientes" />
       </div>

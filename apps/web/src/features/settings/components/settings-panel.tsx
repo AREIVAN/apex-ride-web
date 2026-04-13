@@ -79,11 +79,11 @@ export function SettingsPanel({ userId, initialSettings }: SettingsPanelProps) {
       <div className="space-y-4">
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium text-slate-700">Unidad de medida</legend>
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => setUnitSystem("metric")}
-              className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+              className={`focus-ring min-h-11 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
                 unitSystem === "metric"
                   ? "bg-slate-900 text-white"
                   : "bg-slate-100 text-slate-700 hover:bg-slate-200"
@@ -94,7 +94,7 @@ export function SettingsPanel({ userId, initialSettings }: SettingsPanelProps) {
             <button
               type="button"
               onClick={() => setUnitSystem("imperial")}
-              className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+              className={`focus-ring min-h-11 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
                 unitSystem === "imperial"
                   ? "bg-slate-900 text-white"
                   : "bg-slate-100 text-slate-700 hover:bg-slate-200"
@@ -110,7 +110,7 @@ export function SettingsPanel({ userId, initialSettings }: SettingsPanelProps) {
           <select
             value={activityVisibility ?? "public"}
             onChange={(e) => setActivityVisibility(e.target.value as "public" | "club" | "private")}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+            className="focus-ring min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
           >
             <option value="public">Publica</option>
             <option value="club">Solo mi club</option>
@@ -120,7 +120,7 @@ export function SettingsPanel({ userId, initialSettings }: SettingsPanelProps) {
 
         <fieldset className="space-y-3">
           <legend className="text-sm font-medium text-slate-700">Notificaciones</legend>
-          <label className="flex cursor-pointer items-center justify-between rounded-lg border border-slate-200 px-4 py-3">
+          <label className="focus-ring flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 px-4 py-3">
             <span className="text-sm text-slate-700">Notificaciones de segmentos</span>
             <input
               type="checkbox"

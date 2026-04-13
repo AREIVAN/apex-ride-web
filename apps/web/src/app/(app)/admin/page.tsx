@@ -5,6 +5,7 @@ import { FlaggedAttemptsPanel } from "@/features/admin/components/flagged-attemp
 import { createAdminService } from "@/features/admin/services/admin-service";
 import { requireUser } from "@/features/auth/services/auth-server";
 import { EmptyState } from "@/features/shared/ui/empty-state";
+import { PageHeader } from "@/features/shared/ui/page-header";
 
 export default async function AdminPage() {
   const { user } = await requireUser();
@@ -27,6 +28,10 @@ export default async function AdminPage() {
 
     return (
       <div className="space-y-6">
+        <PageHeader
+          title="Moderacion"
+          description="Gestion de reportes sospechosos para mantener rankings limpios y confiables."
+        />
         <FlaggedAttemptsPanel initialAttempts={initialAttempts} userId={user.id} />
       </div>
     );

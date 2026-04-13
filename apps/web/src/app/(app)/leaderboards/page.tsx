@@ -3,6 +3,7 @@ import { LeaderboardTable } from "@/features/leaderboard/components/leaderboard-
 import { createLeaderboardService } from "@/features/leaderboard/services/leaderboard-service";
 import { createSegmentsService } from "@/features/segments/services/segments-service";
 import { EmptyState } from "@/features/shared/ui/empty-state";
+import { PageHeader } from "@/features/shared/ui/page-header";
 
 export default async function LeaderboardsPage() {
   const { client } = await requireUser();
@@ -23,7 +24,10 @@ export default async function LeaderboardsPage() {
 
     return (
       <div className="space-y-6">
-        <h2 className="text-2xl font-bold text-slate-900">Leaderboards por segmento</h2>
+        <PageHeader
+          title="Leaderboards por segmento"
+          description="Top de tiempos validados para cada segmento activo."
+        />
         {topSegments.map((segment) => {
           const rows = leaderboardBySegment[segment.id] ?? [];
           return (

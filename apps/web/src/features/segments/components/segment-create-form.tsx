@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, startTransition } from "react";
+import { useState, useEffect, useRef, useCallback, startTransition } from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import maplibregl from "maplibre-gl";
@@ -50,12 +50,40 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
   const map = useRef<maplibregl.Map | null>(null);
   const markers = useRef<maplibregl.Marker[]>([]);
   const waypointsRef = useRef(waypoints);
+  const onWaypointsChangeRef = useRef(onWaypointsChange);
   const [routeGeometry, setRouteGeometry] = useState<[number, number][]>([]);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
 
   // Keep ref updated with latest waypoints
   useEffect(() => {
     waypointsRef.current = waypoints;
+  }, [waypoints]);
+
+  useEffect(() => {
+    onWaypointsChangeRef.current = onWaypointsChange;
+  }, [onWaypointsChange]);
+
+  // Fetch route from OSRM
+  const fetchRoute = useCallback(async () => {
+    if (waypoints.length < 2) return;
+
+    setIsLoadingRoute(true);
+    const coords = waypoints.map((wp) => `${wp.lng},${wp.lat}`).join(";");
+
+    try {
+      const response = await fetch(
+        `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
+      );
+      const data = await response.json();
+
+      if (data.code === "Ok" && data.routes[0]) {
+        setRouteGeometry(data.routes[0].geometry.coordinates);
+      }
+    } catch (error) {
+      console.error("Route fetch error:", error);
+    } finally {
+      setIsLoadingRoute(false);
+    }
   }, [waypoints]);
 
   // Initialize map
@@ -91,17 +119,17 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
       });
 
       // Use ref to get current waypoints
-      map.current.on("click", (e) => {
-        const currentWaypoints = waypointsRef.current;
-        const newWaypoint: Waypoint = {
-          id: `wp-${Date.now()}`,
-          lng: e.lngLat.lng,
-          lat: e.lngLat.lat,
-          label: `Punto ${currentWaypoints.length + 1}`,
-        };
-        onWaypointsChange([...currentWaypoints, newWaypoint]);
+        map.current.on("click", (e) => {
+          const currentWaypoints = waypointsRef.current;
+          const newWaypoint: Waypoint = {
+            id: `wp-${Date.now()}`,
+            lng: e.lngLat.lng,
+            lat: e.lngLat.lat,
+            label: `Punto ${currentWaypoints.length + 1}`,
+          };
+          onWaypointsChangeRef.current([...currentWaypoints, newWaypoint]);
+        });
       });
-    });
 
     return () => {
       isMounted = false;
@@ -141,7 +169,7 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
         const lngLat = marker.getLngLat();
         const updated = [...waypoints];
         updated[index] = { ...wp, lng: lngLat.lng, lat: lngLat.lat };
-        onWaypointsChange(updated);
+        onWaypointsChangeRef.current(updated);
       });
 
       markers.current.push(marker);
@@ -153,30 +181,7 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
     } else {
       setRouteGeometry([]);
     }
-  }, [waypoints, onWaypointsChange]);
-
-  // Fetch route from OSRM
-  const fetchRoute = async () => {
-    if (waypoints.length < 2) return;
-
-    setIsLoadingRoute(true);
-    const coords = waypoints.map((wp) => `${wp.lng},${wp.lat}`).join(";");
-
-    try {
-      const response = await fetch(
-        `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
-      );
-      const data = await response.json();
-
-      if (data.code === "Ok" && data.routes[0]) {
-        setRouteGeometry(data.routes[0].geometry.coordinates);
-      }
-    } catch (error) {
-      console.error("Route fetch error:", error);
-    } finally {
-      setIsLoadingRoute(false);
-    }
-  };
+  }, [waypoints, fetchRoute]);
 
   // Draw route on map
   useEffect(() => {
@@ -225,19 +230,19 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
 
   return (
     <div className="relative">
-      <div ref={mapContainer} className="h-96 w-full rounded-lg" style={{ cursor: 'crosshair' }} />
+      <div ref={mapContainer} className="h-[300px] w-full rounded-xl sm:h-[420px]" style={{ cursor: "crosshair" }} />
 
       {waypoints.length === 0 && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/95 px-4 py-2 rounded-lg shadow-lg text-sm font-medium text-slate-700 z-10">
-          Haz clic en el mapa para agregar puntos
-        </div>
-      )}
+          <div className="absolute left-1/2 top-3 z-10 w-[calc(100%-1.5rem)] max-w-xs -translate-x-1/2 rounded-lg bg-white/95 px-3 py-2 text-center text-xs font-medium text-slate-700 shadow-lg sm:top-4 sm:text-sm">
+            Haz clic en el mapa para agregar puntos
+          </div>
+        )}
 
       {isLoadingRoute && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/95 px-3 py-1.5 rounded-lg shadow text-xs text-slate-600 z-10">
-          Calculando ruta...
-        </div>
-      )}
+          <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-lg bg-white/95 px-3 py-1.5 text-xs text-slate-600 shadow sm:bottom-4">
+            Calculando ruta...
+          </div>
+        )}
 
       {waypoints.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
@@ -249,15 +254,24 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
               }`}
             >
               {index === 0 ? "Inicio" : index === waypoints.length - 1 ? "Fin" : `P${index + 1}`}
-              <button type="button" onClick={() => removeWaypoint(wp.id)} className="hover:text-rose-500 ml-1">
-                ×
-              </button>
-            </span>
-          ))}
-          <button type="button" onClick={clearAll} className="text-xs text-slate-500 hover:text-slate-700 underline">
-            Limpiar
-          </button>
-        </div>
+                <button
+                  type="button"
+                  onClick={() => removeWaypoint(wp.id)}
+                  className="focus-ring ml-1 inline-flex min-h-8 min-w-8 items-center justify-center rounded-full text-[13px] leading-none hover:text-rose-500"
+                  aria-label={`Quitar ${wp.label}`}
+                >
+                  ×
+                </button>
+             </span>
+           ))}
+            <button
+              type="button"
+              onClick={clearAll}
+              className="focus-ring inline-flex min-h-9 items-center rounded-md px-2 text-xs font-semibold text-slate-500 underline underline-offset-2 hover:text-slate-700"
+            >
+              Limpiar
+            </button>
+         </div>
       )}
     </div>
   );
@@ -295,15 +309,27 @@ export function SegmentCreateForm() {
       return;
     }
 
+    const controller = new AbortController();
     const coords = waypoints.map((wp) => `${wp.lng},${wp.lat}`).join(";");
-    fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`)
+    fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`, {
+      signal: controller.signal,
+    })
       .then((res) => res.json())
       .then((data) => {
         if (data.code === "Ok" && data.routes[0]) {
           setRouteGeometry(data.routes[0].geometry.coordinates);
         }
       })
-      .catch(console.error);
+      .catch((error) => {
+        if (error instanceof Error && error.name === "AbortError") {
+          return;
+        }
+        console.error(error);
+      });
+
+    return () => {
+      controller.abort();
+    };
   }, [waypoints]);
 
   const distance = routeGeometry.length > 0 ? calculateDistance(routeGeometry) : 0;
@@ -321,11 +347,11 @@ export function SegmentCreateForm() {
 
   if (state && state.success && state.segmentId) {
     return (
-      <Card className="max-w-3xl p-6 text-center">
+      <Card className="max-w-3xl p-5 text-center sm:p-6">
         <div className="text-4xl mb-4">🎉</div>
         <h2 className="text-xl font-bold text-slate-900">Segmento creado</h2>
-        <p className="mt-2 text-slate-600">Tu segmento "{name}" fue guardado correctamente.</p>
-        <div className="mt-4 flex gap-3 justify-center">
+        <p className="mt-2 text-slate-600">Tu segmento <span className="font-semibold">{name}</span> fue guardado correctamente.</p>
+        <div className="mt-4 flex flex-col justify-center gap-3 sm:flex-row">
           <Button onClick={() => (window.location.href = "/segments")}>Ver segmentos</Button>
           <Button variant="secondary" onClick={() => { setName(""); setDescription(""); setWaypoints([]); setRouteGeometry([]); setFormKey((k) => k + 1); }}>
             Crear otro
@@ -336,8 +362,8 @@ export function SegmentCreateForm() {
   }
 
   return (
-    <div key={formKey} className="max-w-3xl space-y-6">
-      <Card className="p-4">
+    <div key={formKey} className="space-y-6">
+      <Card className="p-4 sm:p-5">
         <h2 className="text-lg font-bold text-slate-900 mb-3">Dibujar segmento en el mapa</h2>
         <SegmentCreatorMap waypoints={waypoints} onWaypointsChange={setWaypoints} />
         <p className="mt-2 text-xs text-slate-500">
@@ -346,11 +372,11 @@ export function SegmentCreateForm() {
       </Card>
 
       {distance > 0 && (
-        <Card className="p-4 bg-emerald-50 border-emerald-200">
-          <div className="flex items-center justify-between">
+        <Card className="border-emerald-200 bg-emerald-50 p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="text-sm font-medium text-emerald-800">Distancia calculada</p>
-              <p className="text-2xl font-bold text-emerald-700">{(distance / 1000).toFixed(2)} km</p>
+              <p className="text-xl font-bold text-emerald-700 sm:text-2xl">{(distance / 1000).toFixed(2)} km</p>
             </div>
             <div className="text-right text-sm text-emerald-600">
               {waypoints.length} punto{waypoints.length !== 1 ? "s" : ""}
@@ -359,7 +385,7 @@ export function SegmentCreateForm() {
         </Card>
       )}
 
-      <Card className="p-4">
+      <Card className="p-4 sm:p-5">
         <form onSubmit={handleFormSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1">Nombre del segmento</label>
@@ -377,7 +403,7 @@ export function SegmentCreateForm() {
               value={visibility}
               onChange={(e) => setVisibility(e.target.value)}
               name="visibility"
-              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm"
+              className="focus-ring min-h-11 w-full rounded-xl border border-slate-300/90 bg-white/95 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-brand-500 focus:shadow-[0_0_0_3px_rgba(20,136,198,0.14)]"
             >
               <option value="public">Público - Visible para todos</option>
               <option value="club">Club - Solo miembros</option>

@@ -16,25 +16,25 @@ export function RegisterForm() {
   const [state, formAction] = useActionState<AuthState, FormData>(registerAction, { error: null });
 
   return (
-    <Card className="mx-auto w-full max-w-md">
+    <Card className="mx-auto w-full max-w-md p-6 sm:p-7">
       <h2 className="text-2xl font-bold text-slate-900">Crea tu cuenta</h2>
       <p className="mt-1 text-sm text-slate-600">Configura tu perfil y empeza a sumar kilometros.</p>
       <form action={formAction} className="mt-6 space-y-4">
         <label className="block space-y-1 text-sm font-medium text-slate-700">
           <span>Nombre completo</span>
-          <Input name="fullName" placeholder="Ari Einstein" required />
+          <Input name="fullName" autoComplete="name" placeholder="Ari Einstein" required />
         </label>
         <label className="block space-y-1 text-sm font-medium text-slate-700">
           <span>Email</span>
-          <Input name="email" type="email" placeholder="rider@apexride.com" required />
+          <Input name="email" type="email" autoComplete="email" placeholder="rider@apexride.com" required />
         </label>
         <label className="block space-y-1 text-sm font-medium text-slate-700">
           <span>Clave</span>
-          <Input name="password" type="password" required />
+          <Input name="password" type="password" autoComplete="new-password" required />
         </label>
         <label className="block space-y-1 text-sm font-medium text-slate-700">
           <span>Confirmar clave</span>
-          <Input name="confirmPassword" type="password" required />
+          <Input name="confirmPassword" type="password" autoComplete="new-password" required />
         </label>
         {state?.error ? <p className="text-sm font-medium text-rose-600">{state.error}</p> : null}
         <SubmitButton />

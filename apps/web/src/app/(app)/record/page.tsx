@@ -8,6 +8,8 @@ import { createClient } from "@/lib/supabase/browser";
 import { createSegmentsService } from "@/features/segments/services/segments-service";
 import { Card } from "@/features/shared/ui/card";
 import { Button } from "@/features/shared/ui/button";
+import { PageHeader } from "@/features/shared/ui/page-header";
+import { LoadingState } from "@/features/shared/ui/loading-state";
 import type { SegmentDefinition } from "@/features/tracking/lib/tracking-types";
 
 interface SegmentInfo {
@@ -85,11 +87,8 @@ export default function RecordPage() {
 
   if (isLoadingUser) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-300 border-t-brand-600 mx-auto mb-4" />
-          <p className="text-slate-600">Cargando...</p>
-        </div>
+      <div className="mx-auto max-w-2xl">
+        <LoadingState />
       </div>
     );
   }
@@ -112,40 +111,52 @@ export default function RecordPage() {
   ] : undefined;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
-      {/* Map */}
-      <div className="h-[calc(100vh-140px)]">
-        <MapContainer 
-          title={selectedSegment ? `Segmento: ${selectedSegment.name}` : "Mapa en vivo"}
-          useUserLocation={true}
-          segmentCoordinates={segmentCoordinates}
-        />
-      </div>
+    <div className="space-y-4 overflow-x-hidden">
+      <PageHeader
+        title="Record"
+        description="Panel de grabacion en vivo con mapa, metrica de velocidad y segmentos para intentos."
+      />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
+        {/* Map */}
+        <div className="order-2 h-[42vh] min-h-[280px] sm:h-[52vh] sm:min-h-[340px] xl:order-1 xl:h-[calc(100vh-210px)]">
+          <MapContainer
+            title={selectedSegment ? `Segmento: ${selectedSegment.name}` : "Mapa en vivo"}
+            useUserLocation={true}
+            segmentCoordinates={segmentCoordinates}
+          />
+        </div>
 
-      {/* Recording Panel + Segments */}
-      <div className="space-y-4">
-        <RecordingPanel 
-          riderId={user.id}
-          onMetricsUpdate={handleMetricsUpdate}
-          activeSegment={activeSegment}
-        />
+        {/* Recording Panel + Segments */}
+        <div className="order-1 space-y-4 xl:order-2">
+          <RecordingPanel
+            riderId={user.id}
+            onMetricsUpdate={handleMetricsUpdate}
+            activeSegment={activeSegment}
+          />
 
         {/* Segments quick access */}
-        <Card className="p-4">
-          <h4 className="font-semibold text-slate-900 mb-2">Seleccionar segmento</h4>
+        <Card className="p-4 sm:p-5">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h4 className="font-semibold text-slate-900">Seleccionar segmento</h4>
+            <span className="chip">Top {Math.min(segments.length, 10)}</span>
+          </div>
           {isLoadingSegments ? (
-            <p className="text-sm text-slate-500">Cargando...</p>
+            <p className="text-sm font-medium text-slate-500" role="status" aria-live="polite">
+              Cargando segmentos...
+            </p>
           ) : segments.length === 0 ? (
-            <p className="text-sm text-slate-500">No hay segmentos disponibles</p>
+            <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2.5 text-sm text-slate-500">
+              No hay segmentos disponibles
+            </p>
           ) : (
-            <div className="space-y-2 max-h-64 overflow-y-auto">
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
               {segments.map((segment) => (
                 <button
                   key={segment.id}
                   onClick={() => setSelectedSegment(segment.id === selectedSegment?.id ? null : segment)}
-                  className={`w-full text-left p-3 rounded-lg text-sm transition-colors ${
+                  className={`focus-ring min-h-11 w-full rounded-xl p-3 text-left text-sm transition-colors active:scale-[0.99] ${
                     selectedSegment?.id === segment.id
-                      ? 'bg-brand-100 border-2 border-brand-400'
+                      ? 'bg-brand-100 border-2 border-brand-400 shadow-[0_6px_18px_rgba(20,136,198,0.18)]'
                       : 'bg-slate-50 hover:bg-slate-100 border border-slate-200'
                   }`}
                 >
@@ -161,11 +172,12 @@ export default function RecordPage() {
             </div>
           )}
           {selectedSegment && (
-            <p className="text-xs text-slate-500 mt-2">
+            <p className="mt-2 text-xs text-slate-500">
               El segmento se muestra en el mapa. Iniciá la grabación para intentar superarlo.
             </p>
           )}
         </Card>
+        </div>
       </div>
     </div>
   );

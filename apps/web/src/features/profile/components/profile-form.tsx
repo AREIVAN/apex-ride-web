@@ -56,7 +56,7 @@ export function ProfileForm({ profile }: ProfileFormProps) {
   }
 
   return (
-    <Card className="space-y-4">
+    <Card className="space-y-5">
       <div>
         <h2 className="text-xl font-bold text-slate-900">Perfil de rider moto</h2>
         <p className="text-sm text-slate-600">Actualiza identidad, moto principal y preferencias de rodadas.</p>
@@ -83,7 +83,7 @@ export function ProfileForm({ profile }: ProfileFormProps) {
           <select
             name="preferredVehicleType"
             defaultValue={profile.preferredVehicleType}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900"
+            className="focus-ring min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900"
           >
             <option value="motorcycle">Motorcycle</option>
             <option value="scooter">Scooter</option>
@@ -118,7 +118,12 @@ export function ProfileForm({ profile }: ProfileFormProps) {
         </label>
         <label className="space-y-1 sm:col-span-2">
           <span className="text-sm font-semibold text-slate-700">Bio</span>
-          <Input name="bio" defaultValue={profile.bio} />
+          <textarea
+            name="bio"
+            defaultValue={profile.bio ?? ""}
+            rows={3}
+            className="focus-ring w-full rounded-xl border border-slate-300/90 bg-white/95 px-3.5 py-2.5 text-sm text-slate-900 outline-none"
+          />
         </label>
         {success ? <p className="sm:col-span-2 text-sm font-semibold text-emerald-600">{success}</p> : null}
         {error ? <p className="sm:col-span-2 text-sm font-semibold text-rose-600">{error}</p> : null}

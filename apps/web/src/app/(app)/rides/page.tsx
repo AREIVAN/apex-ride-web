@@ -5,6 +5,7 @@ import { RideSummaryCard } from "@/features/rides/components/ride-summary-card";
 import { createRidesService } from "@/features/rides/services/rides-service";
 import { Button } from "@/features/shared/ui/button";
 import { EmptyState } from "@/features/shared/ui/empty-state";
+import { PageHeader } from "@/features/shared/ui/page-header";
 
 export default async function RidesPage() {
   const { client, user } = await requireUser();
@@ -14,7 +15,10 @@ export default async function RidesPage() {
 
     return (
       <div className="space-y-4">
-        <h2 className="text-2xl font-bold text-slate-900">Tus rodadas</h2>
+        <PageHeader
+          title="Tus rodadas"
+          description="Historial de actividades grabadas con resumen de distancia, elevacion y tiempo efectivo."
+        />
         {!rides.length ? (
           <EmptyState
             title="Todavia no tenes salidas registradas"
@@ -22,7 +26,7 @@ export default async function RidesPage() {
           />
         ) : (
           rides.map((ride) => (
-            <Link key={ride.id} href={`/rides/${ride.id}`} className="block transition-transform hover:-translate-y-0.5">
+            <Link key={ride.id} href={`/rides/${ride.id}`} className="block">
               <RideSummaryCard ride={ride} />
             </Link>
           ))

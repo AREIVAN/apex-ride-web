@@ -94,23 +94,23 @@ function AnimatedNumber({
   return <span className="tabular-nums">{format(display)}</span>;
 }
 
-function MetricCard({ 
-  label, 
-  value, 
+function MetricCard({
+  label,
+  value,
   unit, 
   highlight = false,
-  reduced 
-}: { 
-  label: string; 
-  value: number; 
+  reduced
+}: {
+  label: string;
+  value: number;
   unit: string;
   highlight?: boolean;
   reduced: boolean;
 }) {
   return (
-    <div className={`rounded-xl px-3 py-3 ${highlight ? 'bg-brand-50 border-2 border-brand-300' : 'bg-slate-50'}`}>
+    <div className={`rounded-xl border px-3 py-3 sm:px-3.5 ${highlight ? 'border-brand-300 bg-brand-50 shadow-[0_8px_20px_rgba(24,141,170,0.16)]' : 'border-slate-200 bg-slate-50'}`}>
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      <div className="mt-1 flex items-baseline gap-1">
+      <div className="mt-1 flex items-end gap-1">
         <AnimatedNumber 
           value={value} 
           format={(n) => unit === 'km' ? n.toFixed(2) : Math.round(n).toString()}
@@ -352,7 +352,7 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
   // Notify parent of route changes
   useEffect(() => {
     onRouteUpdate?.(routeRef.current);
-  }, [routeRef.current, onRouteUpdate]);
+  }, [metrics.pointsAccepted, onRouteUpdate]);
 
   async function startRecording() {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
@@ -490,8 +490,11 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
   return (
     <div className="space-y-4">
       {/* Live metrics */}
-      <Card className="p-4">
-        <h3 className="text-lg font-bold text-slate-900 mb-3">Metrics en vivo</h3>
+      <Card className="p-4 sm:p-5">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="text-lg font-bold text-slate-900">Metrics en vivo</h3>
+          <span className="chip min-h-8">GPS filtrado</span>
+        </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <MetricCard 
             label="Velocidad" 
@@ -521,7 +524,7 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
         </div>
         
         {/* Time tracking */}
-        <div className="mt-3 pt-3 border-t border-slate-200">
+        <div className="mt-3 border-t border-slate-200 pt-3">
           <div className="flex items-center justify-between text-sm">
             <span className="text-slate-600">Tiempo en movimiento</span>
             <span className="font-mono font-bold text-slate-900">
@@ -531,12 +534,14 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
           </div>
         </div>
 
-        <p className="mt-2 text-xs text-slate-500 text-center">{panelMessage}</p>
+        <p className="mt-2 text-center text-xs text-slate-500" role="status" aria-live="polite">
+          {panelMessage}
+        </p>
       </Card>
 
       {/* Active segment indicator */}
       {activeSegment && (
-        <Card className="p-3 bg-amber-50 border-amber-200">
+        <Card className="border-amber-200 bg-amber-50 p-3.5">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
             <span className="text-sm font-medium text-amber-800">
@@ -547,12 +552,12 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
       )}
 
       {/* Controls */}
-      <Card className="p-4">
-        <div className="flex gap-2">
+      <Card className="p-4 sm:p-5">
+        <div className="grid gap-2 sm:grid-cols-3">
           <Button 
             onClick={startRecording} 
             disabled={isRecording || status === "starting" || status === "saving"}
-            className="flex-1"
+            className="min-h-11 w-full"
           >
             {status === "starting" ? "Iniciando..." : isRecording ? "Grabando..." : "Iniciar"}
           </Button>
@@ -560,6 +565,7 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
             variant="secondary" 
             onClick={pauseRecording} 
             disabled={!isRecording}
+            className="min-h-11 w-full"
           >
             Pausar
           </Button>
@@ -567,23 +573,26 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
             variant="ghost" 
             onClick={finishRecording} 
             disabled={status === "idle" || status === "starting"}
+            className="min-h-11 w-full"
           >
             {status === "saving" ? "Guardando..." : "Finalizar"}
           </Button>
         </div>
-        {saveError && <p className="mt-2 text-sm text-rose-600">{saveError}</p>}
+        {saveError && <p className="mt-2 text-sm font-medium text-rose-600">{saveError}</p>}
       </Card>
 
       {/* Segments info */}
       {isSegmentsLoading ? (
-        <LoadingDots text="Cargando segmentos..." />
+        <Card className="p-3.5">
+          <LoadingDots text="Cargando segmentos..." />
+        </Card>
       ) : segmentsError ? (
         <ErrorState title="Error" description={segmentsError} />
       ) : segments.length === 0 ? (
-        <p className="text-sm text-slate-500 text-center">No hay segmentos disponibles</p>
+        <EmptyState title="Sin segmentos" description="No hay segmentos disponibles para intentar en este momento." compact />
       ) : (
         <Card className="p-3">
-          <p className="text-xs text-slate-500 mb-2">
+          <p className="mb-2 text-xs text-slate-500">
             {segments.length} segmento(s) disponible(s) para intentar
           </p>
         </Card>

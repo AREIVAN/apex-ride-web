@@ -5,6 +5,7 @@ import { SegmentCard } from "@/features/segments/components/segment-card";
 import { createSegmentsService } from "@/features/segments/services/segments-service";
 import { Button } from "@/features/shared/ui/button";
 import { EmptyState } from "@/features/shared/ui/empty-state";
+import { PageHeader } from "@/features/shared/ui/page-header";
 
 export default async function SegmentsPage() {
   const { client } = await requireUser();
@@ -14,19 +15,22 @@ export default async function SegmentsPage() {
 
     return (
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-slate-900">Segmentos</h2>
-          <Link href="/segments/create">
-            <Button>Nuevo segmento</Button>
-          </Link>
-        </div>
+        <PageHeader
+          title="Segmentos"
+          description="Defini rutas competitivas para comparar tiempos entre riders de la comunidad."
+          actions={
+            <Link href="/segments/create">
+              <Button>Nuevo segmento</Button>
+            </Link>
+          }
+        />
 
         {segments.length ? (
           segments.map((segment) => (
             <Link
               key={segment.id}
               href={`/segments/${segment.id}`}
-              className="block transition-transform hover:-translate-y-0.5"
+              className="block"
             >
               <SegmentCard segment={segment} />
             </Link>
