@@ -63,24 +63,36 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
     onWaypointsChangeRef.current = onWaypointsChange;
   }, [onWaypointsChange]);
 
-  // Fetch route from OSRM
+  // Fetch route from our API which calls OSRM server-side
   const fetchRoute = useCallback(async () => {
     if (waypoints.length < 2) return;
 
     setIsLoadingRoute(true);
-    const coords = waypoints.map((wp) => `${wp.lng},${wp.lat}`).join(";");
+    console.log("[SegmentCreatorMap] Fetching route for waypoints:", waypoints);
 
     try {
-      const response = await fetch(
-        `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
-      );
-      const data = await response.json();
+      const response = await fetch("/api/osrm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ waypoints }),
+      });
 
-      if (data.code === "Ok" && data.routes[0]) {
-        setRouteGeometry(data.routes[0].geometry.coordinates);
+      const data = await response.json();
+      console.log("[SegmentCreatorMap] Route API response:", data);
+
+      if (data.route && data.route.length > 0) {
+        setRouteGeometry(data.route);
+        console.log("[SegmentCreatorMap] Route geometry set:", data.route.length, "points");
+      } else {
+        console.warn("[SegmentCreatorMap] No route in response, using waypoints directly");
+        const directRoute = waypoints.map(wp => [wp.lng, wp.lat] as [number, number]);
+        setRouteGeometry(directRoute);
       }
     } catch (error) {
-      console.error("Route fetch error:", error);
+      console.error("[SegmentCreatorMap] Route fetch error:", error);
+      // Fallback: use waypoints directly
+      const directRoute = waypoints.map(wp => [wp.lng, wp.lat] as [number, number]);
+      setRouteGeometry(directRoute);
     } finally {
       setIsLoadingRoute(false);
     }
@@ -175,7 +187,7 @@ export function SegmentCreatorMap({ waypoints, onWaypointsChange }: SegmentCreat
       markers.current.push(marker);
     });
 
-    // Fetch route if we have at least 2 points
+    // Fetch route when waypoints change
     if (waypoints.length >= 2) {
       fetchRoute();
     } else {
@@ -302,34 +314,40 @@ export function SegmentCreateForm() {
   const [visibility, setVisibility] = useState("public");
   const [formKey, setFormKey] = useState(0);
 
-  // Calculate route when waypoints change
+  // Update route geometry when waypoints change - call our API which uses OSRM server-side
   useEffect(() => {
-    if (waypoints.length < 2) {
-      setRouteGeometry([]);
-      return;
+    async function fetchRouteFromApi() {
+      if (waypoints.length < 2) {
+        setRouteGeometry([]);
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/osrm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ waypoints }),
+        });
+
+        const data = await response.json();
+
+        if (data.route && data.route.length > 0) {
+          setRouteGeometry(data.route);
+          console.log("[SegmentCreateForm] Route geometry set:", data.route.length, "points");
+        } else {
+          // Fallback: use waypoints directly
+          const directRoute = waypoints.map(wp => [wp.lng, wp.lat] as [number, number]);
+          setRouteGeometry(directRoute);
+        }
+      } catch (error) {
+        console.error("[SegmentCreateForm] Route fetch error:", error);
+        // Fallback: use waypoints directly
+        const directRoute = waypoints.map(wp => [wp.lng, wp.lat] as [number, number]);
+        setRouteGeometry(directRoute);
+      }
     }
 
-    const controller = new AbortController();
-    const coords = waypoints.map((wp) => `${wp.lng},${wp.lat}`).join(";");
-    fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`, {
-      signal: controller.signal,
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.code === "Ok" && data.routes[0]) {
-          setRouteGeometry(data.routes[0].geometry.coordinates);
-        }
-      })
-      .catch((error) => {
-        if (error instanceof Error && error.name === "AbortError") {
-          return;
-        }
-        console.error(error);
-      });
-
-    return () => {
-      controller.abort();
-    };
+    fetchRouteFromApi();
   }, [waypoints]);
 
   const distance = routeGeometry.length > 0 ? calculateDistance(routeGeometry) : 0;

@@ -20,7 +20,7 @@ interface SegmentInfo {
   startLng: number;
   endLat: number;
   endLng: number;
-  routeCoordinates?: [number, number][];
+  pathCoordinates?: [number, number][];
 }
 
 export default function RecordPage() {
@@ -30,6 +30,7 @@ export default function RecordPage() {
   const [selectedSegment, setSelectedSegment] = useState<SegmentInfo | null>(null);
   const [segments, setSegments] = useState<SegmentInfo[]>([]);
   const [isLoadingSegments, setIsLoadingSegments] = useState(true);
+  const [recenterTrigger, setRecenterTrigger] = useState(0);
 
   // Check auth on mount
   useEffect(() => {
@@ -50,7 +51,7 @@ export default function RecordPage() {
         const supabase = createClient();
         const service = createSegmentsService(supabase);
         const allSegments = await service.listPublic();
-        setSegments(allSegments.slice(0, 10).map((s) => ({
+        const mappedSegments = allSegments.slice(0, 10).map((s) => ({
           id: s.id,
           name: s.name,
           distanceM: s.distanceM || 0,
@@ -58,7 +59,10 @@ export default function RecordPage() {
           startLng: s.startLng,
           endLat: s.endLat,
           endLng: s.endLng,
-        })));
+          pathCoordinates: s.pathCoordinates,
+        }));
+        console.log("[RecordPage] Segmentos cargados:", mappedSegments);
+        setSegments(mappedSegments);
       } catch (error) {
         console.error("Error loading segments:", error);
       } finally {
@@ -105,10 +109,24 @@ export default function RecordPage() {
   }
 
   // Convert selected segment to coordinates for map
-  const segmentCoordinates: [number, number][] | undefined = selectedSegment ? [
-    [selectedSegment.startLng, selectedSegment.startLat],
-    [selectedSegment.endLng, selectedSegment.endLat]
-  ] : undefined;
+  // Use pathCoordinates (full route) if available, otherwise fallback to start/end line
+  let segmentCoordinates: [number, number][] | undefined;
+  
+  if (selectedSegment) {
+    if (selectedSegment.pathCoordinates && selectedSegment.pathCoordinates.length >= 2) {
+      segmentCoordinates = selectedSegment.pathCoordinates;
+      console.log("[RecordPage] Usando pathCoordinates (ruta completa)");
+    } else {
+      // Fallback: use start/end points as a simple line
+      segmentCoordinates = [
+        [selectedSegment.startLng, selectedSegment.startLat],
+        [selectedSegment.endLng, selectedSegment.endLat]
+      ];
+      console.log("[RecordPage] Usando fallback (línea start→end)");
+    }
+  }
+
+  console.log("[RecordPage] segmentCoordinates para mapa:", segmentCoordinates);
 
   return (
     <div className="space-y-4 overflow-x-hidden">
@@ -133,6 +151,7 @@ export default function RecordPage() {
             title={selectedSegment ? `Segmento: ${selectedSegment.name}` : "Mapa en vivo"}
             useUserLocation={true}
             segmentCoordinates={segmentCoordinates}
+            recenterTrigger={recenterTrigger}
           />
         </div>
 
@@ -142,6 +161,7 @@ export default function RecordPage() {
             riderId={user.id}
             onMetricsUpdate={handleMetricsUpdate}
             activeSegment={activeSegment}
+            onRecordingStarted={() => setRecenterTrigger(t => t + 1)}
           />
 
         {/* Segments quick access */}

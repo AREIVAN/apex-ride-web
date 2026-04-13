@@ -13,4 +13,6 @@ export const createSegmentSchema = z.object({
   routeGeometry: z.string().optional(),
 });
 
-export type CreateSegmentValues = z.infer<typeof createSegmentSchema>;
+export type CreateSegmentValues = z.infer<typeof createSegmentSchema> & {
+  routeGeometry?: string;
+};

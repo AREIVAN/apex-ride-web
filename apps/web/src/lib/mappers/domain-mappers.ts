@@ -41,7 +41,33 @@ export function mapSegmentRow(row: SegmentRow): Segment {
 }
 
 function parseLineCoordinates(geom: unknown): [number, number][] | undefined {
-  if (!geom || typeof geom !== "object") return undefined;
+  // Handle null/undefined
+  if (!geom) return undefined;
+
+  // Case 1: String (WKT format from Supabase, e.g., "LINESTRING(-58.3 -34.6, -58.4 -34.7)")
+  if (typeof geom === "string") {
+    const wktMatch = geom.match(/LINESTRING\(([^)]+)\)/);
+    if (wktMatch) {
+      const coordsStr = wktMatch[1];
+      const coords = coordsStr.split(",").map((c) => {
+        const parts = c.trim().split(/\s+/);
+        if (parts.length >= 2) {
+          const lng = Number(parts[0]);
+          const lat = Number(parts[1]);
+          if (Number.isFinite(lng) && Number.isFinite(lat)) {
+            return [lng, lat] as [number, number];
+          }
+        }
+        return null;
+      }).filter((c): c is [number, number] => c !== null);
+      
+      return coords.length >= 2 ? coords : undefined;
+    }
+    return undefined;
+  }
+
+  // Case 2: Object (GeoJSON format)
+  if (typeof geom !== "object") return undefined;
 
   const maybeGeo = geom as { coordinates?: unknown };
   if (!Array.isArray(maybeGeo.coordinates)) return undefined;

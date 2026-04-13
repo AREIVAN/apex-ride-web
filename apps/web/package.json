@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "e2e": "playwright test",
+    "e2e:mobile-nav": "playwright test tests/e2e/mobile-nav-drawer.spec.ts --project=mobile-chromium"
   },
   "dependencies": {
     "@mapbox/mapbox-gl-rtl-text": "^0.4.0",
@@ -27,6 +29,7 @@
     "eslint": "^9.23.0",
     "eslint-config-next": "15.2.4",
     "postcss": "^8.5.3",
+    "@playwright/test": "^1.54.2",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.2"
   }

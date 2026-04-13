@@ -20,6 +20,7 @@ interface RecordingPanelProps {
   onMetricsUpdate?: (metrics: RideMetrics) => void;
   onRouteUpdate?: (route: [number, number][]) => void;
   activeSegment?: SegmentDefinition | null;
+  onRecordingStarted?: () => void;
 }
 
 export interface RideMetrics {
@@ -353,7 +354,7 @@ function LiveTrackingMap({
   );
 }
 
-export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, activeSegment }: RecordingPanelProps) {
+export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, activeSegment, onRecordingStarted }: RecordingPanelProps) {
   const service = useMemo(() => createTrackingService(createClient()), []);
   const reduced = useReducedMotion();
 
@@ -509,6 +510,7 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
     setMetrics({ speedKmh: 0, maxSpeedKmh: 0, distanceM: 0, avgSpeedKmh: 0, movingTimeSec: 0, pointsAccepted: 0 });
     setPanelMessage("Grabando... GPS activo.");
     beginWatch();
+    onRecordingStarted?.();
   }
 
   function pauseRecording() {

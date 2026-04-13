@@ -38,6 +38,20 @@ export function createSegmentsService(client: SupabaseClient<Database>): Segment
       const safeCreatorId = z.string().uuid().parse(creatorId);
       const avgGradientPct = payload.distanceM > 0 ? (payload.elevationGainM / payload.distanceM) * 100 : 0;
 
+      // Convert routeGeometry to PostGIS LineString if provided
+      let geom = null;
+      if (payload.routeGeometry) {
+        try {
+          const coords = JSON.parse(payload.routeGeometry);
+          if (Array.isArray(coords) && coords.length >= 2) {
+            // PostGIS expects coordinates as [x, y] = [lng, lat]
+            geom = `LINESTRING(${coords.map((c: number[]) => `${c[0]} ${c[1]}`).join(', ')})`;
+          }
+        } catch (e) {
+          console.error("Error parsing routeGeometry:", e);
+        }
+      }
+
       const { data, error } = await client
         .from("segments")
         .insert({
@@ -51,7 +65,8 @@ export function createSegmentsService(client: SupabaseClient<Database>): Segment
           start_lat: payload.startLat,
           start_lng: payload.startLng,
           end_lat: payload.endLat,
-          end_lng: payload.endLng
+          end_lng: payload.endLng,
+          geom: geom, // PostGIS LineString
         })
         .select("*")
         .single();

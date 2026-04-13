@@ -4,16 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils/cn";
-
-const nav = [
-  { href: "/dashboard", label: "Panel", icon: "OV" },
-  { href: "/rides", label: "Rodadas", icon: "RD" },
-  { href: "/record", label: "Grabar", icon: "REC" },
-  { href: "/segments", label: "Segmentos", icon: "SEG" },
-  { href: "/leaderboards", label: "Clasificacion", icon: "TOP" },
-  { href: "/profile", label: "Perfil", icon: "ME" },
-  { href: "/settings", label: "Ajustes", icon: "CFG" }
-] as const;
+import { navigationItems } from "./navigation-items";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -28,7 +19,7 @@ export function Sidebar() {
         <p className="mt-1 text-xl">Apex Ride</p>
       </Link>
       <nav className="space-y-1.5">
-        {nav.map((item) => {
+        {navigationItems.map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
             <Link
@@ -51,8 +42,8 @@ export function Sidebar() {
               >
                 {item.icon}
               </span>
-              {item.label}
-            </Link>
+                {item.desktopLabel}
+              </Link>
           );
         })}
       </nav>

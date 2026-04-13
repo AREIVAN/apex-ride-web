@@ -16,6 +16,8 @@ interface MapContainerProps {
   useUserLocation?: boolean;
   routeCoordinates?: [number, number][];
   segmentCoordinates?: [number, number][];
+  recenterTrigger?: number;
+  focusOnSegment?: boolean;
 }
 
 const DEFAULT_ZOOM = 12;
@@ -58,11 +60,14 @@ export function MapContainer({
   useUserLocation = true,
   routeCoordinates,
   segmentCoordinates,
+  recenterTrigger,
+  focusOnSegment = true,
 }: MapContainerProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const getUserLocationFn = useRef<() => Promise<[number, number]>>(getUserLocation);
 
   const safeRouteCoordinates = useMemo(
     () => routeCoordinates?.filter(isValidCoordinate) ?? [],
@@ -182,10 +187,13 @@ export function MapContainer({
 
   // Draw segment route on map
   useEffect(() => {
+    console.log("[MapContainer] segmentCoordinates recibidos:", safeSegmentCoordinates);
     if (!map.current || !safeSegmentCoordinates.length) return;
 
     const drawSegment = () => {
       if (!map.current) return;
+
+      console.log("[MapContainer] Dibujando segmento con coords:", safeSegmentCoordinates);
 
       upsertLineLayer({
         map: map.current,
@@ -204,6 +212,76 @@ export function MapContainer({
     if (map.current.isStyleLoaded()) drawSegment();
     else map.current.once("load", drawSegment);
   }, [safeSegmentCoordinates]);
+
+  // Add markers for segment start and end points
+  useEffect(() => {
+    if (!map.current || !safeSegmentCoordinates.length || !focusOnSegment) return;
+
+    const clearMarkers = () => {
+      const existingMarkers = document.querySelectorAll('[id^="segment-marker-"]');
+      existingMarkers.forEach(el => el.remove());
+    };
+    clearMarkers();
+
+    const addMarkers = () => {
+      if (!map.current) return;
+
+      // Start marker (green)
+      const startCoord = safeSegmentCoordinates[0];
+      const startEl = document.createElement("div");
+      startEl.id = "segment-marker-start";
+      startEl.className = "w-5 h-5 rounded-full bg-emerald-500 border-2 border-white shadow-lg";
+      new maplibregl.Marker({ element: startEl })
+        .setLngLat(startCoord)
+        .setPopup(new maplibregl.Popup({ offset: 25 }).setHTML('<div class="text-sm font-medium text-slate-900">Inicio</div>'))
+        .addTo(map.current);
+
+      // End marker (red)
+      const endCoord = safeSegmentCoordinates[safeSegmentCoordinates.length - 1];
+      const endEl = document.createElement("div");
+      endEl.id = "segment-marker-end";
+      endEl.className = "w-5 h-5 rounded-full bg-rose-500 border-2 border-white shadow-lg";
+      new maplibregl.Marker({ element: endEl })
+        .setLngLat(endCoord)
+        .setPopup(new maplibregl.Popup({ offset: 25 }).setHTML('<div class="text-sm font-medium text-slate-900">Fin</div>'))
+        .addTo(map.current);
+    };
+
+    if (map.current.isStyleLoaded()) addMarkers();
+    else map.current.once("load", addMarkers);
+
+    return () => {
+      clearMarkers();
+    };
+  }, [safeSegmentCoordinates, focusOnSegment]);
+
+  // Recenter map to user location when trigger changes
+  // Only if no segment is selected (segment takes priority)
+  useEffect(() => {
+    if (!map.current || !recenterTrigger) return;
+    
+    // If there's a segment, don't recenter to GPS - keep showing the segment
+    if (safeSegmentCoordinates.length > 0 && focusOnSegment) {
+      return;
+    }
+
+    async function recenter() {
+      const location = await getUserLocationFn.current();
+      if (map.current) {
+        map.current.flyTo({
+          center: location,
+          zoom: 16, // Street-level zoom
+          duration: 1000,
+        });
+      }
+    }
+
+    if (map.current?.isStyleLoaded()) {
+      recenter();
+    } else {
+      map.current?.once("load", recenter);
+    }
+  }, [recenterTrigger, safeSegmentCoordinates, focusOnSegment]);
 
   return (
     <Card className="overflow-hidden p-0">
