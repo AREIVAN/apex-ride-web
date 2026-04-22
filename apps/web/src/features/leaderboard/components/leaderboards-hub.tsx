@@ -1,17 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/features/shared/ui/button";
 import { Card } from "@/features/shared/ui/card";
 import { EmptyState } from "@/features/shared/ui/empty-state";
-import type { LeaderboardRow, Segment } from "@/types/domain";
+import { createSegmentAttemptsLocalService } from "@/features/tracking/services/segment-attempts-local-service";
+import type { LeaderboardRow, Segment, SegmentAttempt } from "@/types/domain";
 
 interface LeaderboardsHubProps {
   segments: Segment[];
   leaderboardBySegment: Record<string, LeaderboardRow[]>;
   userId: string;
+  backendAvailable?: boolean;
 }
 
 type Scope = "global" | "segment";
@@ -26,14 +28,15 @@ interface GlobalRow {
   freshness: string;
 }
 
-export function LeaderboardsHub({ segments, leaderboardBySegment, userId }: LeaderboardsHubProps) {
+export function LeaderboardsHub({ segments, leaderboardBySegment, userId, backendAvailable = true }: LeaderboardsHubProps) {
   const [scope, setScope] = useState<Scope>("global");
   const [period, setPeriod] = useState<Period>("30d");
   const [selectedSegmentId, setSelectedSegmentId] = useState(segments[0]?.id ?? "");
+  const [localAttemptsBySegment, setLocalAttemptsBySegment] = useState<Record<string, SegmentAttempt[]>>({});
 
   const windows = useMemo(() => periodWindows(period), [period]);
 
-  const filteredByPeriod = useMemo(() => {
+  const backendRowsByPeriod = useMemo(() => {
     const bySegment: Record<string, LeaderboardRow[]> = {};
 
     for (const segment of segments) {
@@ -45,6 +48,41 @@ export function LeaderboardsHub({ segments, leaderboardBySegment, userId }: Lead
 
     return bySegment;
   }, [period, segments, leaderboardBySegment, windows.currentStart]);
+
+  useEffect(() => {
+    const localService = createSegmentAttemptsLocalService();
+
+    function loadLocalAttempts() {
+      const bySegment: Record<string, SegmentAttempt[]> = {};
+      for (const segment of segments) {
+        bySegment[segment.id] = localService.listAttemptsBySegment(segment.id);
+      }
+      setLocalAttemptsBySegment(bySegment);
+    }
+
+    loadLocalAttempts();
+    window.addEventListener("storage", loadLocalAttempts);
+    window.addEventListener("focus", loadLocalAttempts);
+    return () => {
+      window.removeEventListener("storage", loadLocalAttempts);
+      window.removeEventListener("focus", loadLocalAttempts);
+    };
+  }, [segments]);
+
+  const filteredByPeriod = useMemo(() => {
+    const bySegment: Record<string, LeaderboardRow[]> = {};
+
+    for (const segment of segments) {
+      bySegment[segment.id] = buildHybridRows({
+        backendRows: backendRowsByPeriod[segment.id] ?? [],
+        localAttempts: localAttemptsBySegment[segment.id] ?? [],
+        userId,
+        currentStart: period === "all" ? null : windows.currentStart,
+      });
+    }
+
+    return bySegment;
+  }, [segments, backendRowsByPeriod, localAttemptsBySegment, userId, period, windows.currentStart]);
 
   const previousByPeriod = useMemo(() => {
     const bySegment: Record<string, LeaderboardRow[]> = {};
@@ -114,6 +152,9 @@ export function LeaderboardsHub({ segments, leaderboardBySegment, userId }: Lead
             </select>
           ) : null}
         </div>
+        {!backendAvailable ? (
+          <p className="text-xs text-amber-700">Backend de leaderboard no disponible. Mostrando ranking local temporal.</p>
+        ) : null}
       </Card>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -234,7 +275,12 @@ export function LeaderboardsHub({ segments, leaderboardBySegment, userId }: Lead
                     return (
                       <tr key={`${row.segmentId}-${row.riderId}`} className={`border-t border-slate-100 ${isUser ? "bg-brand-50/60" : ""}`}>
                         <td className="px-4 py-3 font-semibold text-slate-900">{row.rank}</td>
-                        <td className="px-4 py-3 font-semibold text-slate-900">{row.riderName}{isUser ? " (vos)" : ""}</td>
+                        <td className="px-4 py-3 font-semibold text-slate-900">
+                          {row.riderName}{isUser ? " (vos)" : ""}
+                          {row.isCurrentAttempt ? " - intento actual" : ""}
+                          {row.isLocalPersonalBest ? " - PB local" : ""}
+                          {row.isPendingSync ? " - pendiente sync" : ""}
+                        </td>
                         <td className="px-4 py-3 font-semibold text-brand-900">{formatTime(row.elapsedTimeSec)}</td>
                         <td className="px-4 py-3 text-slate-600">{new Date(row.recordedAt).toLocaleDateString()}</td>
                         <td className="px-4 py-3 text-slate-700">{row.rank === 1 ? "Lider" : `+${formatTime(row.elapsedTimeSec - leaderTime)}`}</td>
@@ -250,6 +296,109 @@ export function LeaderboardsHub({ segments, leaderboardBySegment, userId }: Lead
       )}
     </section>
   );
+}
+
+function buildHybridRows(params: {
+  backendRows: LeaderboardRow[];
+  localAttempts: SegmentAttempt[];
+  userId: string;
+  currentStart: number | null;
+}): LeaderboardRow[] {
+  const { backendRows, localAttempts, userId, currentStart } = params;
+  const rowsByRider = new Map<string, LeaderboardRow>();
+
+  for (const backendRow of backendRows) {
+    rowsByRider.set(backendRow.riderId, {
+      ...backendRow,
+      isCurrentAttempt: false,
+      isLocalPersonalBest: false,
+      isPendingSync: false,
+    });
+  }
+
+  const localCompleted = localAttempts.filter((attempt) => {
+    if (attempt.status !== "completed") return false;
+    if (typeof attempt.elapsedSec !== "number" || attempt.elapsedSec <= 0) return false;
+    if (!currentStart) return true;
+    return new Date(attempt.recordedAt).getTime() >= currentStart;
+  });
+
+  const localBestByRider = new Map<string, SegmentAttempt>();
+  for (const attempt of localCompleted) {
+    const current = localBestByRider.get(attempt.riderId);
+    if (!current) {
+      localBestByRider.set(attempt.riderId, attempt);
+      continue;
+    }
+
+    if ((attempt.elapsedSec ?? Number.POSITIVE_INFINITY) < (current.elapsedSec ?? Number.POSITIVE_INFINITY)) {
+      localBestByRider.set(attempt.riderId, attempt);
+      continue;
+    }
+
+    if (attempt.elapsedSec === current.elapsedSec && attempt.recordedAt < current.recordedAt) {
+      localBestByRider.set(attempt.riderId, attempt);
+    }
+  }
+
+  const latestLocalByRider = new Map<string, SegmentAttempt>();
+  for (const attempt of localCompleted) {
+    const current = latestLocalByRider.get(attempt.riderId);
+    if (!current || attempt.recordedAt > current.recordedAt) {
+      latestLocalByRider.set(attempt.riderId, attempt);
+    }
+  }
+
+  for (const [riderId, localBest] of localBestByRider.entries()) {
+    const existing = rowsByRider.get(riderId);
+    const localRow: LeaderboardRow = {
+      rank: existing?.rank ?? 0,
+      riderId,
+      riderName: riderId === userId ? "Vos" : existing?.riderName ?? "Rider local",
+      segmentId: localBest.segmentId,
+      elapsedTimeSec: localBest.elapsedSec ?? 0,
+      recordedAt: localBest.recordedAt,
+      isCurrentAttempt: latestLocalByRider.get(riderId)?.id === localBest.id,
+      isLocalPersonalBest: riderId === userId,
+      isPendingSync: localBest.syncState !== "synced",
+    };
+
+    if (!existing) {
+      rowsByRider.set(riderId, localRow);
+      continue;
+    }
+
+    const shouldOverlay =
+      localRow.elapsedTimeSec < existing.elapsedTimeSec ||
+      (localRow.elapsedTimeSec === existing.elapsedTimeSec && localRow.recordedAt < existing.recordedAt);
+
+    if (shouldOverlay) {
+      rowsByRider.set(riderId, {
+        ...existing,
+        ...localRow,
+      });
+      continue;
+    }
+
+    if (riderId === userId) {
+      rowsByRider.set(riderId, {
+        ...existing,
+        isCurrentAttempt: localRow.isCurrentAttempt,
+        isLocalPersonalBest: localRow.isLocalPersonalBest,
+        isPendingSync: localRow.isPendingSync,
+      });
+    }
+  }
+
+  return Array.from(rowsByRider.values())
+    .sort((a, b) => {
+      if (a.elapsedTimeSec !== b.elapsedTimeSec) return a.elapsedTimeSec - b.elapsedTimeSec;
+      return a.recordedAt.localeCompare(b.recordedAt);
+    })
+    .map((row, index) => ({
+      ...row,
+      rank: index + 1,
+    }));
 }
 
 function createGlobalRows(bySegment: Record<string, LeaderboardRow[]>, segments: Segment[]): GlobalRow[] {

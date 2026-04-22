@@ -1,16 +1,16 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 
 import { MapContainer } from "@/features/maps/components/map-container";
-import { RecordingPanel, type RideMetrics } from "@/features/tracking/components/recording-panel";
+import { RecordingPanel, type LiveTrackPoint } from "@/features/tracking/components/recording-panel";
 import { createClient } from "@/lib/supabase/browser";
 import { createSegmentsService } from "@/features/segments/services/segments-service";
 import { Card } from "@/features/shared/ui/card";
 import { Button } from "@/features/shared/ui/button";
-import { PageHeader } from "@/features/shared/ui/page-header";
 import { LoadingState } from "@/features/shared/ui/loading-state";
 import type { SegmentDefinition } from "@/features/tracking/lib/tracking-types";
+import type { SegmentLiveSnapshot } from "@/features/tracking/lib/segment-live-tracker";
 
 interface SegmentInfo {
   id: string;
@@ -26,11 +26,15 @@ interface SegmentInfo {
 export default function RecordPage() {
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [isLoadingUser, setIsLoadingUser] = useState(true);
-  const [metrics, setMetrics] = useState<RideMetrics | null>(null);
   const [selectedSegment, setSelectedSegment] = useState<SegmentInfo | null>(null);
   const [segments, setSegments] = useState<SegmentInfo[]>([]);
   const [isLoadingSegments, setIsLoadingSegments] = useState(true);
   const [recenterTrigger, setRecenterTrigger] = useState(0);
+  const [liveRoute, setLiveRoute] = useState<[number, number][]>([]);
+  const [currentPosition, setCurrentPosition] = useState<[number, number] | null>(null);
+  const [followUser, setFollowUser] = useState(true);
+  const [trackSamples, setTrackSamples] = useState<LiveTrackPoint[]>([]);
+  const [segmentLiveSnapshot, setSegmentLiveSnapshot] = useState<SegmentLiveSnapshot | null>(null);
 
   // Check auth on mount
   useEffect(() => {
@@ -71,22 +75,26 @@ export default function RecordPage() {
     loadSegments();
   }, [user]);
 
-  const handleMetricsUpdate = useCallback((newMetrics: RideMetrics) => {
-    setMetrics(newMetrics);
-  }, []);
-
   // Convert selected segment to SegmentDefinition for RecordingPanel
-  const activeSegment: SegmentDefinition | null = selectedSegment ? {
-    id: selectedSegment.id,
-    name: selectedSegment.name,
-    start: { lat: selectedSegment.startLat, lng: selectedSegment.startLng },
-    end: { lat: selectedSegment.endLat, lng: selectedSegment.endLng },
-    route: [
-      { lat: selectedSegment.startLat, lng: selectedSegment.startLng },
-      { lat: selectedSegment.endLat, lng: selectedSegment.endLng }
-    ],
-    radiusM: 35
-  } : null;
+  const activeSegment: SegmentDefinition | null = useMemo(() => {
+    if (!selectedSegment) {
+      return null;
+    }
+
+    return {
+      id: selectedSegment.id,
+      name: selectedSegment.name,
+      start: { lat: selectedSegment.startLat, lng: selectedSegment.startLng },
+      end: { lat: selectedSegment.endLat, lng: selectedSegment.endLng },
+      route: selectedSegment.pathCoordinates && selectedSegment.pathCoordinates.length >= 2
+        ? selectedSegment.pathCoordinates.map(([lng, lat]) => ({ lat, lng }))
+        : [
+            { lat: selectedSegment.startLat, lng: selectedSegment.startLng },
+            { lat: selectedSegment.endLat, lng: selectedSegment.endLng }
+          ],
+      radiusM: 35
+    };
+  }, [selectedSegment]);
 
   if (isLoadingUser) {
     return (
@@ -125,42 +133,49 @@ export default function RecordPage() {
 
   return (
     <div className="space-y-4 overflow-x-hidden">
-      <PageHeader
-        title="Grabar"
-        description="Operacion de tracking en tiempo real con control claro de GPS, estados y objetivo de segmento."
-      >
-        <div className="grid gap-2 sm:grid-cols-3">
-          <StatPill label="Distancia en sesion" value={`${((metrics?.distanceM ?? 0) / 1000).toFixed(2)} km`} />
-          <StatPill label="Velocidad actual" value={`${(metrics?.speedKmh ?? 0).toFixed(1)} km/h`} />
-          <StatPill label="Segmento activo" value={selectedSegment ? selectedSegment.name : "Sin seleccionar"} />
-        </div>
-      </PageHeader>
-
-      <Card className="rounded-2xl border border-dashed border-slate-300 bg-white/70 p-3.5 text-sm text-slate-700">
-        Flujo recomendado: selecciona segmento, inicia grabacion, pausa solo en detenciones largas y finaliza al cerrar la ruta para conservar datos limpios.
-      </Card>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_390px]">
-        {/* Map */}
-        <div className="order-2 h-[42vh] min-h-[280px] sm:h-[52vh] sm:min-h-[340px] lg:order-1 lg:h-[calc(100vh-210px)]">
+        <div className="order-1 lg:order-2">
+          <RecordingPanel
+            riderId={user.id}
+            activeSegment={activeSegment}
+            onRouteUpdate={setLiveRoute}
+            onCurrentPositionUpdate={setCurrentPosition}
+            onTrackPointsUpdate={setTrackSamples}
+            onSegmentSnapshotUpdate={setSegmentLiveSnapshot}
+            onRecordingStarted={() => {
+              setFollowUser(true);
+              setRecenterTrigger(t => t + 1);
+            }}
+          />
+        </div>
+
+        <div className="order-2 flex h-[42vh] min-h-[280px] flex-col gap-2 sm:h-[52vh] sm:min-h-[340px] lg:order-1 lg:h-[calc(100vh-210px)]">
+          <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600">
+            <span>{followUser ? "Camara siguiendo GPS" : "Camara libre"}</span>
+            <button
+              type="button"
+              onClick={() => setFollowUser(value => !value)}
+              className="focus-ring rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 transition hover:bg-slate-50"
+            >
+              {followUser ? "Desactivar follow" : "Activar follow"}
+            </button>
+          </div>
           <MapContainer
             title={selectedSegment ? `Segmento: ${selectedSegment.name}` : "Mapa en vivo"}
             useUserLocation={true}
+            routeCoordinates={liveRoute}
+            trackSamples={trackSamples}
             segmentCoordinates={segmentCoordinates}
             recenterTrigger={recenterTrigger}
+            currentPosition={currentPosition}
+            segmentLiveSnapshot={segmentLiveSnapshot}
+            followCurrentPosition={followUser}
+            onFollowInterrupted={() => setFollowUser(false)}
+            preserveCameraOnRouteUpdates={true}
           />
         </div>
 
-        {/* Recording Panel + Segments */}
-        <div className="order-1 space-y-4 lg:order-2">
-          <RecordingPanel
-            riderId={user.id}
-            onMetricsUpdate={handleMetricsUpdate}
-            activeSegment={activeSegment}
-            onRecordingStarted={() => setRecenterTrigger(t => t + 1)}
-          />
-
-        {/* Segments quick access */}
-        <Card className="p-4 sm:p-5">
+        <Card className="order-3 p-4 sm:p-5 lg:col-start-2">
           <div className="mb-3 flex items-center justify-between gap-3">
             <h4 className="font-semibold text-slate-900">Seleccionar segmento</h4>
             <span className="chip">Top {Math.min(segments.length, 10)}</span>
@@ -202,17 +217,7 @@ export default function RecordPage() {
             </p>
           )}
         </Card>
-        </div>
       </div>
-    </div>
-  );
-}
-
-function StatPill({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2.5">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-1 min-h-5 truncate text-sm font-semibold text-slate-900">{value}</p>
     </div>
   );
 }

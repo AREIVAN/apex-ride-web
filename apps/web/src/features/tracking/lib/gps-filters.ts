@@ -48,6 +48,8 @@ export const defaultGpsFilterConfig: GpsFilterConfig = {
   minMoveFloorM: 6
 };
 
+const MAX_WARMUP_EXTENSION_MS = 12_000;
+
 const initialMetrics: TrackingMetrics = {
   distanceM: 0,
   speedKmh: 0,
@@ -82,10 +84,11 @@ export function ingestGpsFix(
   const startedAt = state.startedAt || fix.timestamp;
 
   const inWarmupWindow = fix.timestamp < startedAt + config.warmupDurationMs;
+  const warmupExpired = fix.timestamp >= startedAt + config.warmupDurationMs + MAX_WARMUP_EXTENSION_MS;
   const hasWarmupAccuracy = fix.accuracyM !== null && fix.accuracyM <= config.warmupAccuracyM;
   const warmupGood = hasWarmupAccuracy ? state.warmupGood + 1 : state.warmupGood;
 
-  if (inWarmupWindow || warmupGood < config.warmupGoodFixes) {
+  if ((inWarmupWindow || warmupGood < config.warmupGoodFixes) && !warmupExpired) {
     const warmupState: GpsFilterState = {
       ...state,
       startedAt,
@@ -142,9 +145,12 @@ export function ingestGpsFix(
   const speedKmh =
     stationaryStreak >= config.stopStreak || speedEma < 1.2 ? 0 : clamp(speedEma, 0, 320);
 
+  const canAccumulateMovingTime =
+    accOk && !isTeleport && (canAccumulateDistance || clampedRaw >= config.stopSpeedKmh);
+
   // Calculate moving time (only count time when moving)
   let movingTimeSec = state.metrics.movingTimeSec || 0;
-  if (state.lastTimestamp && canAccumulateDistance) {
+  if (state.lastTimestamp && canAccumulateMovingTime) {
     const timeDelta = (fix.timestamp - state.lastTimestamp) / 1000;
     if (timeDelta > 0 && timeDelta < 60) { // Sanity check: max 60s between points
       movingTimeSec += timeDelta;
@@ -213,10 +219,14 @@ export class GpsFilterEngine {
     this.state = createGpsFilterState(timestamp);
   }
 
-  ingest(fix: GpsFix): TrackingMetrics {
+  ingestDetailed(fix: GpsFix): GpsFilterStepResult {
     const result = ingestGpsFix(this.state, fix, this.config);
     this.state = result.state;
-    return result.metrics;
+    return result;
+  }
+
+  ingest(fix: GpsFix): TrackingMetrics {
+    return this.ingestDetailed(fix).metrics;
   }
 
   getAllPoints(): Array<{ lat: number; lng: number; timestamp: number; speedMs: number | null; altitudeM: number | null }> {

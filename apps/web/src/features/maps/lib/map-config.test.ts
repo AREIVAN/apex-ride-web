@@ -1,11 +1,50 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { MAP_FALLBACK_STYLE, MAP_STYLES, resolveMapStyle } from "./map-config";
+import {
+  MAP_FALLBACK_STYLE,
+  MAP_STYLES,
+  getMapboxToken,
+  resolveMapStyle,
+} from "./map-config";
+
+function withMapboxToken(token: string | undefined, run: () => void) {
+  const previous = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+  process.env.NEXT_PUBLIC_MAPBOX_TOKEN = token;
+
+  try {
+    run();
+  } finally {
+    process.env.NEXT_PUBLIC_MAPBOX_TOKEN = previous;
+  }
+}
+
+test("getMapboxToken trims valid public token", () => {
+  withMapboxToken("  pk.valid-public-token  ", () => {
+    assert.equal(getMapboxToken(), "pk.valid-public-token");
+  });
+});
+
+test("getMapboxToken rejects placeholder token", () => {
+  withMapboxToken("pk.your_mapbox_public_token", () => {
+    assert.equal(getMapboxToken(), "");
+  });
+});
+
+test("getMapboxToken rejects non-public token", () => {
+  withMapboxToken("sk.secret-token", () => {
+    assert.equal(getMapboxToken(), "");
+  });
+});
 
 test("resolveMapStyle returns Mapbox style when token exists", () => {
-  const style = resolveMapStyle("token-value");
+  const style = resolveMapStyle("pk.token-value");
   assert.equal(style, MAP_STYLES.streets);
+});
+
+test("resolveMapStyle returns raster fallback for invalid token format", () => {
+  const style = resolveMapStyle("sk.secret-token");
+  assert.deepEqual(style, MAP_FALLBACK_STYLE);
 });
 
 test("resolveMapStyle returns raster fallback without token", () => {

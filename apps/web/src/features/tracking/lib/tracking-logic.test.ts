@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { computeRideMetrics } from "./ride-metrics";
-import { createGpsFilterState, ingestGpsFix } from "./gps-filters";
+import { createGpsFilterState, defaultGpsFilterConfig, ingestGpsFix } from "./gps-filters";
 import { detectSegmentAttempts } from "./segment-attempt-detector";
 
 test("gps filter ignores teleports and keeps warmup lock", () => {
@@ -53,6 +53,85 @@ test("computeRideMetrics derives ascent and descent", () => {
   assert.equal(Math.round(metrics.ascentM), 6);
   assert.equal(Math.round(metrics.descentM), 4);
   assert.ok(metrics.distanceM > 0);
+});
+
+test("gps filter releases warmup after extended timeout", () => {
+  const base = 1_700_000_000_000;
+  const config = {
+    ...defaultGpsFilterConfig,
+    warmupDurationMs: 2_000,
+    warmupGoodFixes: 2,
+    warmupAccuracyM: 10,
+    maxAccuracyM: 40
+  };
+
+  let state = createGpsFilterState(base);
+
+  const first = ingestGpsFix(state, {
+    lat: -34.6,
+    lng: -58.38,
+    timestamp: base,
+    accuracyM: 30,
+    speedMs: null
+  }, config);
+
+  state = first.state;
+
+  const second = ingestGpsFix(state, {
+    lat: -34.6,
+    lng: -58.3798,
+    timestamp: base + 5_000,
+    accuracyM: 30,
+    speedMs: null
+  }, config);
+
+  state = second.state;
+
+  const afterTimeout = ingestGpsFix(state, {
+    lat: -34.6,
+    lng: -58.3796,
+    timestamp: base + 15_500,
+    accuracyM: 30,
+    speedMs: null
+  }, config);
+
+  assert.equal(first.metrics.warmupLocked, true);
+  assert.equal(second.metrics.warmupLocked, true);
+  assert.equal(afterTimeout.metrics.warmupLocked, false);
+  assert.ok(afterTimeout.metrics.pointsAccepted > 0);
+});
+
+test("gps filter accumulates moving time from speed even with tiny steps", () => {
+  const base = 1_700_000_100_000;
+  const config = {
+    ...defaultGpsFilterConfig,
+    warmupDurationMs: 0,
+    warmupGoodFixes: 0,
+    minMoveFloorM: 6
+  };
+
+  let state = createGpsFilterState(base);
+
+  const first = ingestGpsFix(state, {
+    lat: -34.6,
+    lng: -58.38,
+    timestamp: base,
+    accuracyM: 5,
+    speedMs: 3
+  }, config);
+
+  state = first.state;
+
+  const second = ingestGpsFix(state, {
+    lat: -34.599996,
+    lng: -58.379996,
+    timestamp: base + 1_000,
+    accuracyM: 5,
+    speedMs: 3
+  }, config);
+
+  assert.equal(Math.round(second.metrics.distanceM), 0);
+  assert.equal(second.metrics.movingTimeSec, 1);
 });
 
 test("detectSegmentAttempts validates route adherence", () => {

@@ -1,33 +1,36 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import mapboxgl from "mapbox-gl";
-import "mapbox-gl/dist/mapbox-gl.css";
 
 import { Button } from "@/features/shared/ui/button";
 import { Card } from "@/features/shared/ui/card";
-import { EmptyState } from "@/features/shared/ui/empty-state";
-import { ErrorState } from "@/features/shared/ui/error-state";
 import { getTrackingQualityLabel, readLocalPreferences, type TrackingQuality } from "@/features/settings/lib/local-preferences";
+import type { SegmentAttempt, SegmentAttemptStatus } from "@/types/domain";
 import { createClient } from "@/lib/supabase/browser";
 
 import { GpsFilterEngine, type GpsFilterConfig } from "../lib/gps-filters";
 import { detectSegmentAttempts, type SegmentDefinition, type TrackPoint } from "../lib/segment-attempt-detector";
-import { createTrackingService } from "../services/tracking-service";
 import {
-  MAP_DEFAULTS,
-  ROUTE_COLORS,
-  ROUTE_WIDTHS,
-  getMapboxToken,
-  resolveMapStyle,
-} from "@/features/maps/lib/map-config";
+  SegmentLiveTracker,
+  type SegmentLiveSnapshot,
+  type SegmentLiveStatus,
+} from "../lib/segment-live-tracker";
+import {
+  buildSegmentAttemptSyncKey,
+  createSegmentAttemptsLocalService,
+  type SegmentAttemptOutcome,
+} from "../services/segment-attempts-local-service";
+import { createTrackingService, mapDomainAttemptToBackendInsert } from "../services/tracking-service";
 
 interface RecordingPanelProps {
   riderId: string;
   onMetricsUpdate?: (metrics: RideMetrics) => void;
   onRouteUpdate?: (route: [number, number][]) => void;
+  onCurrentPositionUpdate?: (position: [number, number] | null) => void;
+  onTrackPointsUpdate?: (points: LiveTrackPoint[]) => void;
   activeSegment?: SegmentDefinition | null;
   onRecordingStarted?: () => void;
+  onSegmentSnapshotUpdate?: (snapshot: SegmentLiveSnapshot | null) => void;
 }
 
 export interface RideMetrics {
@@ -39,7 +42,14 @@ export interface RideMetrics {
   pointsAccepted: number;
 }
 
-const FALLBACK_CENTER: [number, number] = MAP_DEFAULTS.center;
+export interface LiveTrackPoint {
+  lat: number;
+  lng: number;
+  timestamp: number;
+  speedKmh: number | null;
+  accuracyM: number | null;
+}
+
 const MAP_MATCHING_ENABLED = process.env.NEXT_PUBLIC_TRACKING_MAP_MATCHING_ENABLED === "true";
 
 interface MapMatchingApiResponse {
@@ -49,6 +59,22 @@ interface MapMatchingApiResponse {
   reason?: string;
 }
 
+interface PostRideDetectedAttempt {
+  segmentId: string;
+  elapsedTimeSec: number;
+  onRouteRatio: number;
+  startedAt: number;
+  endedAt: number;
+}
+
+interface AttemptUiFeedback {
+  status: SegmentAttemptStatus;
+  elapsedSec: number | null;
+  isPersonalBest: boolean;
+  estimatedRank: number | null;
+  reason: string | null;
+}
+
 function buildTrackingProfile(quality: TrackingQuality): {
   config: GpsFilterConfig;
   watchOptions: PositionOptions;
@@ -56,17 +82,17 @@ function buildTrackingProfile(quality: TrackingQuality): {
   if (quality === "max") {
     return {
       config: {
-        maxAccuracyM: 25,
-        warmupDurationMs: 3000,
-        warmupAccuracyM: 20,
-        warmupGoodFixes: 3,
+        maxAccuracyM: 30,
+        warmupDurationMs: 1500,
+        warmupAccuracyM: 30,
+        warmupGoodFixes: 1,
         stopSpeedKmh: 1.5,
         stopStreak: 3,
-        maxJumpM: 90,
+        maxJumpM: 100,
         maxJumpDeltaS: 2,
         smoothingAlpha: 0.35,
-        maxSegmentDistanceM: 180,
-        minMoveFloorM: 4
+        maxSegmentDistanceM: 200,
+        minMoveFloorM: 3
       },
       watchOptions: { enableHighAccuracy: true, maximumAge: 400, timeout: 12000 }
     };
@@ -75,38 +101,38 @@ function buildTrackingProfile(quality: TrackingQuality): {
   if (quality === "battery") {
     return {
       config: {
-        maxAccuracyM: 55,
-        warmupDurationMs: 5000,
-        warmupAccuracyM: 45,
-        warmupGoodFixes: 2,
+        maxAccuracyM: 60,
+        warmupDurationMs: 2000,
+        warmupAccuracyM: 60,
+        warmupGoodFixes: 1,
         stopSpeedKmh: 2.2,
         stopStreak: 5,
-        maxJumpM: 150,
+        maxJumpM: 180,
         maxJumpDeltaS: 2,
         smoothingAlpha: 0.2,
-        maxSegmentDistanceM: 320,
-        minMoveFloorM: 8
+        maxSegmentDistanceM: 350,
+        minMoveFloorM: 6
       },
       watchOptions: { enableHighAccuracy: false, maximumAge: 4000, timeout: 18000 }
     };
   }
 
   return {
-    config: {
-      maxAccuracyM: 40,
-      warmupDurationMs: 4000,
-      warmupAccuracyM: 35,
-      warmupGoodFixes: 2,
-      stopSpeedKmh: 2,
-      stopStreak: 4,
-      maxJumpM: 120,
-      maxJumpDeltaS: 2,
-      smoothingAlpha: 0.25,
-      maxSegmentDistanceM: 250,
-      minMoveFloorM: 6
-    },
-    watchOptions: { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
-  };
+      config: {
+        maxAccuracyM: 50,
+        warmupDurationMs: 1500,
+        warmupAccuracyM: 50,
+        warmupGoodFixes: 1,
+        stopSpeedKmh: 2,
+        stopStreak: 4,
+        maxJumpM: 150,
+        maxJumpDeltaS: 2,
+        smoothingAlpha: 0.25,
+        maxSegmentDistanceM: 300,
+        minMoveFloorM: 5
+      },
+      watchOptions: { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
+    };
 }
 
 function useReducedMotion(): boolean {
@@ -194,187 +220,30 @@ function MetricCard({
   );
 }
 
-function LoadingDots({ text }: { text: string }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span className="text-sm text-slate-600">{text}</span>
-      <span className="relative flex h-2 w-2">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-slate-400 opacity-75" />
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-slate-500" />
-      </span>
-    </span>
-  );
-}
-
-function getUserLocation(): Promise<[number, number]> {
-  return new Promise((resolve) => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      resolve(FALLBACK_CENTER);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => resolve([position.coords.longitude, position.coords.latitude]),
-      () => resolve(FALLBACK_CENTER),
-      { timeout: 10000 }
-    );
-  });
-}
-
-// Live tracking map component
-function LiveTrackingMap({ 
-  route, 
-  currentPosition,
-  activeSegment 
-}: { 
-  route: [number, number][];
-  currentPosition: [number, number] | null;
-  activeSegment: SegmentDefinition | null;
-}) {
-  const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<mapboxgl.Map | null>(null);
-  const routeSource = useRef<mapboxgl.GeoJSONSource | null>(null);
-  const currentMarker = useRef<mapboxgl.Marker | null>(null);
-  const segmentSource = useRef<mapboxgl.GeoJSONSource | null>(null);
-
-  // Initialize map
-  useEffect(() => {
-    if (!mapContainer.current || map.current) return;
-
-    const token = getMapboxToken();
-    const containerElement = mapContainer.current;
-
-    getUserLocation().then((center) => {
-      // Configure Mapbox token
-      if (token) {
-        mapboxgl.accessToken = token;
-      }
-
-      map.current = new mapboxgl.Map({
-        container: containerElement,
-        style: resolveMapStyle(token),
-        center,
-        zoom: 14,
-      });
-
-      map.current.on("load", () => {
-        map.current?.addControl(new mapboxgl.NavigationControl(), "top-right");
-        map.current?.addControl(new mapboxgl.GeolocateControl({ trackUserLocation: true }), "top-right");
-        
-        // Add attribution
-        map.current?.addControl(
-          new mapboxgl.AttributionControl({ compact: true }),
-          "bottom-right"
-        );
-
-        // Add route source
-        map.current?.addSource("live-route", {
-          type: "geojson",
-          data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [] } },
-        });
-
-        map.current?.addLayer({
-          id: "route-outline",
-          type: "line",
-          source: "live-route",
-          layout: { "line-join": "round", "line-cap": "round" },
-          paint: { "line-color": "#ffffff", "line-width": ROUTE_WIDTHS.liveOutline, "line-opacity": 0.6 },
-        });
-
-        map.current?.addLayer({
-          id: "route-line",
-          type: "line",
-          source: "live-route",
-          layout: { "line-join": "round", "line-cap": "round" },
-          paint: { "line-color": ROUTE_COLORS.live, "line-width": ROUTE_WIDTHS.live, "line-opacity": 0.9 },
-        });
-
-        routeSource.current = map.current?.getSource("live-route") as mapboxgl.GeoJSONSource;
-
-        // Add segment source
-        map.current?.addSource("segment-route", {
-          type: "geojson",
-          data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [] } },
-        });
-
-        map.current?.addLayer({
-          id: "segment-line",
-          type: "line",
-          source: "segment-route",
-          layout: { "line-join": "round", "line-cap": "round" },
-          paint: { "line-color": ROUTE_COLORS.segment, "line-width": 3, "line-opacity": 0.7, "line-dasharray": [2, 1] },
-        });
-
-        segmentSource.current = map.current?.getSource("segment-route") as mapboxgl.GeoJSONSource;
-      });
-    });
-
-    return () => {
-      if (map.current) {
-        map.current.remove();
-        map.current = null;
-      }
-    };
-  }, []);
-
-  // Update route
-  useEffect(() => {
-    if (!routeSource.current || route.length === 0) return;
-
-    routeSource.current.setData({
-      type: "Feature",
-      properties: {},
-      geometry: { type: "LineString", coordinates: route },
-    });
-
-    // Fit bounds to route
-    if (map.current && route.length > 1) {
-      const bounds = route.reduce(
-        (b, coord) => b.extend(coord as [number, number]),
-        new mapboxgl.LngLatBounds(route[0], route[0])
-      );
-      map.current.fitBounds(bounds, { padding: 50, maxZoom: 16 });
-    }
-  }, [route]);
-
-  // Update current position marker
-  useEffect(() => {
-    if (!map.current || !currentPosition) return;
-
-    if (!currentMarker.current) {
-      const el = document.createElement("div");
-      el.className = "w-4 h-4 rounded-full bg-brand-600 border-2 border-white shadow-lg animate-pulse";
-      currentMarker.current = new mapboxgl.Marker({ element: el }).addTo(map.current);
-    }
-
-    currentMarker.current.setLngLat(currentPosition);
-  }, [currentPosition]);
-
-  // Show active segment
-  useEffect(() => {
-    if (!segmentSource.current || !activeSegment?.route) return;
-
-    segmentSource.current.setData({
-      type: "Feature",
-      properties: {},
-      geometry: { type: "LineString", coordinates: activeSegment.route.map(p => [p.lng, p.lat]) },
-    });
-  }, [activeSegment]);
-
-  return (
-    <div ref={mapContainer} className="h-full w-full rounded-lg" />
-  );
-}
-
-export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, activeSegment, onRecordingStarted }: RecordingPanelProps) {
+export function RecordingPanel({
+  riderId,
+  onMetricsUpdate,
+  onRouteUpdate,
+  onCurrentPositionUpdate,
+  onTrackPointsUpdate,
+  activeSegment,
+  onRecordingStarted,
+  onSegmentSnapshotUpdate,
+}: RecordingPanelProps) {
   const service = useMemo(() => createTrackingService(createClient()), []);
+  const attemptsLocalService = useMemo(() => createSegmentAttemptsLocalService(), []);
   const reduced = useReducedMotion();
 
   const watchIdRef = useRef<number | null>(null);
   const routeRef = useRef<[number, number][]>([]);
+  const liveTrackPointsRef = useRef<LiveTrackPoint[]>([]);
   const startTimeRef = useRef<number | null>(null);
   const rideIdRef = useRef<string | null>(null);
+  const segmentTrackerRef = useRef<SegmentLiveTracker | null>(null);
 
-  const [status, setStatus] = useState<"idle" | "starting" | "recording" | "paused" | "saving">("idle");
+  const [status, setStatus] = useState<"idle" | "countdown" | "starting" | "recording" | "paused" | "saving">("idle");
+  const [countdownValue, setCountdownValue] = useState<number | null>(null);
+  const countdownTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [metrics, setMetrics] = useState<RideMetrics>({
     speedKmh: 0,
     maxSpeedKmh: 0,
@@ -383,15 +252,19 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
     movingTimeSec: 0,
     pointsAccepted: 0,
   });
-  const [currentPosition, setCurrentPosition] = useState<[number, number] | null>(null);
   const [gpsAccuracyM, setGpsAccuracyM] = useState<number | null>(null);
   const [lastFixAt, setLastFixAt] = useState<number | null>(null);
   const [panelMessage, setPanelMessage] = useState("Listo para iniciar tu rodada.");
   const [segments, setSegments] = useState<SegmentDefinition[]>([]);
-  const [segmentsError, setSegmentsError] = useState<string | null>(null);
-  const [isSegmentsLoading, setIsSegmentsLoading] = useState(true);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [trackingQuality, setTrackingQuality] = useState<TrackingQuality>("balanced");
+  const [currentPosition, setCurrentPosition] = useState<[number, number] | null>(null);
+  const [hasInitialFix, setHasInitialFix] = useState(false);
+  const [routeVersion, setRouteVersion] = useState(0);
+  const [segmentSnapshot, setSegmentSnapshot] = useState<SegmentLiveSnapshot | null>(null);
+  const [attemptFeedback, setAttemptFeedback] = useState<AttemptUiFeedback | null>(null);
+  const [attemptSyncStatus, setAttemptSyncStatus] = useState<"synced" | "pending" | null>(null);
+  const lastSegmentStatusRef = useRef<SegmentLiveStatus | null>(null);
 
   useEffect(() => {
     const local = readLocalPreferences();
@@ -411,6 +284,16 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
 
   const isRecording = status === "recording";
   const hasLiveFix = lastFixAt !== null && Date.now() - lastFixAt <= 8000;
+  const recordingStatus = isRecording ? "Grabando" : status === "paused" ? "Pausado" : "Listo";
+  const gpsStatus =
+    (status === "starting" || isRecording) && !hasInitialFix
+      ? "Buscando fix"
+      : hasLiveFix
+        ? "GPS estable"
+        : "GPS inestable";
+  const precisionStatus = gpsAccuracyM ? `${Math.round(gpsAccuracyM)} m` : "Sin fix";
+  const movingMinutes = Math.floor(metrics.movingTimeSec / 60).toString().padStart(2, "0");
+  const movingSeconds = (metrics.movingTimeSec % 60).toString().padStart(2, "0");
 
   const maybeMapMatchTrace = useCallback(async (points: TrackPoint[]): Promise<TrackPoint[]> => {
     if (!MAP_MATCHING_ENABLED || points.length < 2) {
@@ -442,14 +325,11 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
   // Load segments on mount
   useEffect(() => {
     async function loadSegments() {
-      setIsSegmentsLoading(true);
       try {
         const loadedSegments = await service.listTrackableSegments();
         setSegments(loadedSegments);
       } catch (error) {
-        setSegmentsError(error instanceof Error ? error.message : "No se pudieron cargar segmentos.");
-      } finally {
-        setIsSegmentsLoading(false);
+        console.error("No se pudieron cargar segmentos para deteccion de intentos", error);
       }
     }
     void loadSegments();
@@ -460,6 +340,9 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
     return () => {
       if (watchIdRef.current !== null && typeof navigator !== "undefined" && navigator.geolocation) {
         navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+      if (countdownTimeoutRef.current) {
+        clearTimeout(countdownTimeoutRef.current);
       }
     };
   }, []);
@@ -472,45 +355,184 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
   // Notify parent of route changes
   useEffect(() => {
     onRouteUpdate?.(routeRef.current);
-  }, [metrics.pointsAccepted, onRouteUpdate]);
+  }, [routeVersion, onRouteUpdate]);
+
+  useEffect(() => {
+    onCurrentPositionUpdate?.(currentPosition);
+  }, [currentPosition, onCurrentPositionUpdate]);
+
+  useEffect(() => {
+    onTrackPointsUpdate?.(liveTrackPointsRef.current);
+  }, [routeVersion, onTrackPointsUpdate]);
+
+  useEffect(() => {
+    onSegmentSnapshotUpdate?.(segmentSnapshot);
+  }, [onSegmentSnapshotUpdate, segmentSnapshot]);
+
+  useEffect(() => {
+    if (!activeSegment) {
+      segmentTrackerRef.current = null;
+      setSegmentSnapshot(null);
+      setAttemptFeedback(null);
+      lastSegmentStatusRef.current = null;
+      return;
+    }
+
+    const tracker = new SegmentLiveTracker(activeSegment);
+    segmentTrackerRef.current = tracker;
+    const initialSnapshot = tracker.getSnapshot();
+    setSegmentSnapshot(initialSnapshot);
+    setAttemptFeedback(null);
+    lastSegmentStatusRef.current = initialSnapshot.status;
+  }, [activeSegment]);
+
+  useEffect(() => {
+    if (!segmentSnapshot || !activeSegment) return;
+
+    const previousStatus = lastSegmentStatusRef.current;
+    if (previousStatus === segmentSnapshot.status) return;
+    lastSegmentStatusRef.current = segmentSnapshot.status;
+
+    if (segmentSnapshot.status === "active") {
+      setAttemptFeedback(null);
+      setPanelMessage("Intento iniciado: segmento en curso.");
+      return;
+    }
+
+    if (segmentSnapshot.status === "completed") {
+      const liveAttempt = createLiveAttemptFromSnapshot({
+        snapshot: segmentSnapshot,
+        activeSegment,
+        riderId,
+        rideId: rideIdRef.current,
+      });
+
+      if (!liveAttempt) return;
+
+      const outcome = attemptsLocalService.getAttemptOutcome(liveAttempt);
+      setAttemptFeedback({
+        status: "completed",
+        elapsedSec: outcome.elapsedSec,
+        isPersonalBest: outcome.isPersonalBest,
+        estimatedRank: outcome.estimatedRank,
+        reason: null,
+      });
+
+      setPanelMessage(buildCompletedPanelMessage(outcome));
+      return;
+    }
+
+    if (segmentSnapshot.status === "abandoned" || segmentSnapshot.status === "invalid") {
+      setAttemptFeedback({
+        status: segmentSnapshot.status,
+        elapsedSec: segmentSnapshot.elapsedSec,
+        isPersonalBest: false,
+        estimatedRank: null,
+        reason: segmentSnapshot.reason,
+      });
+
+      if (segmentSnapshot.status === "abandoned") {
+        setPanelMessage("Intento abandonado por desvio o perdida de continuidad.");
+        return;
+      }
+
+      setPanelMessage("Intento invalido por teletransporte o cierre demasiado rapido.");
+    }
+  }, [activeSegment, attemptsLocalService, riderId, segmentSnapshot]);
 
   function beginWatch() {
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
         const timestamp = Date.now();
+        const rawSpeed = position.coords.speed;
+        const speedMs = typeof rawSpeed === "number" && Number.isFinite(rawSpeed) && rawSpeed >= 0
+          ? rawSpeed
+          : null;
         const fix = {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
           timestamp,
           accuracyM: position.coords.accuracy ?? null,
-          speedMs: position.coords.speed ?? null,
+          speedMs,
           altitudeM: position.coords.altitude ?? null,
         };
 
-        setCurrentPosition([fix.lng, fix.lat]);
+        const nextPosition: [number, number] = [fix.lng, fix.lat];
+        setCurrentPosition(nextPosition);
+        if (!hasInitialFix) {
+          setHasInitialFix(true);
+        }
+
         setGpsAccuracyM(typeof fix.accuracyM === "number" ? fix.accuracyM : null);
         setLastFixAt(timestamp);
 
-        const result = engine.ingest(fix);
+        const result = (() => {
+          try {
+            const res = engine.ingestDetailed(fix);
+            console.log('[GPS] fix:', fix.accuracyM, 'warmupLocked:', res.metrics.warmupLocked, 'accOk:', res.rejectedByAccuracy, 'teleport:', res.rejectedByTeleport);
+            return res;
+          } catch (e) {
+            console.error('[GPS] engine error:', e);
+            return null;
+          }
+        })();
+
+        if (!result) {
+          setPanelMessage("Recibiendo GPS... esperando fix valido.");
+          return;
+        }
 
         const newMetrics: RideMetrics = {
-          speedKmh: result.speedKmh,
-          maxSpeedKmh: result.maxSpeedKmh,
-          distanceM: result.distanceM,
-          avgSpeedKmh: result.distanceM > 0 && result.movingTimeSec > 0
-            ? (result.distanceM / 1000) / (result.movingTimeSec / 3600)
+          speedKmh: result.metrics.speedKmh,
+          maxSpeedKmh: result.metrics.maxSpeedKmh,
+          distanceM: result.metrics.distanceM,
+          avgSpeedKmh: result.metrics.distanceM > 0 && result.metrics.movingTimeSec > 0
+            ? (result.metrics.distanceM / 1000) / (result.metrics.movingTimeSec / 3600)
             : 0,
-          movingTimeSec: result.movingTimeSec,
-          pointsAccepted: result.pointsAccepted,
+          movingTimeSec: result.metrics.movingTimeSec,
+          pointsAccepted: result.metrics.pointsAccepted,
         };
 
         setMetrics(newMetrics);
-        routeRef.current.push([fix.lng, fix.lat]);
 
-        if (result.warmupLocked) {
+        const canAppendPoint =
+          !result.metrics.warmupLocked &&
+          !result.rejectedByAccuracy &&
+          !result.rejectedByTeleport &&
+          (result.acceptedForMetrics || routeRef.current.length === 0);
+
+        if (canAppendPoint) {
+          routeRef.current.push(nextPosition);
+          liveTrackPointsRef.current.push({
+            lat: fix.lat,
+            lng: fix.lng,
+            timestamp: fix.timestamp,
+            speedKmh: Number.isFinite(newMetrics.speedKmh) ? newMetrics.speedKmh : null,
+            accuracyM: typeof fix.accuracyM === "number" ? fix.accuracyM : null,
+          });
+
+          if (segmentTrackerRef.current) {
+            const nextSnapshot = segmentTrackerRef.current.ingest({
+              lat: fix.lat,
+              lng: fix.lng,
+              timestamp: fix.timestamp,
+              accuracyM: typeof fix.accuracyM === "number" ? fix.accuracyM : null,
+            });
+            setSegmentSnapshot(nextSnapshot);
+          }
+
+          setRouteVersion(version => version + 1);
+        }
+
+        if (result.metrics.warmupLocked) {
           setPanelMessage("Buscando GPS...");
         } else {
-          setPanelMessage(`Grabando: ${(result.distanceM / 1000).toFixed(2)} km`);
+          setPanelMessage(`Grabando: ${(result.metrics.distanceM / 1000).toFixed(2)} km`);
         }
       },
       () => {
@@ -527,11 +549,55 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
     }
 
     setSaveError(null);
-    setStatus("starting");
-    setPanelMessage("Iniciando grabacion...");
+    setStatus("countdown");
+    setCountdownValue(3);
+    setPanelMessage("Prepárate...");
+    
+    // Reset data for new recording
     routeRef.current = [];
+    liveTrackPointsRef.current = [];
+    setRouteVersion(version => version + 1);
     setLastFixAt(null);
     setGpsAccuracyM(null);
+    setCurrentPosition(null);
+    setHasInitialFix(false);
+    if (segmentTrackerRef.current) {
+      const resetSnapshot = segmentTrackerRef.current.reset();
+      setSegmentSnapshot(resetSnapshot);
+      setAttemptFeedback(null);
+      setAttemptSyncStatus(null);
+      lastSegmentStatusRef.current = resetSnapshot.status;
+    }
+
+    // Clear any existing countdown timeout
+    if (countdownTimeoutRef.current) {
+      clearTimeout(countdownTimeoutRef.current);
+    }
+
+    // Start countdown: 3 -> 2 -> 1 -> 0 -> GO!
+    const runCountdown = async (value: number) => {
+      setCountdownValue(value);
+      
+      if (value > 0) {
+        countdownTimeoutRef.current = setTimeout(() => {
+          runCountdown(value - 1);
+        }, 1000);
+      } else {
+        // Countdown finished - actually start recording
+        countdownTimeoutRef.current = null;
+        await actuallyStartRecording();
+      }
+    };
+
+    // Start countdown after setting state
+    countdownTimeoutRef.current = setTimeout(() => {
+      runCountdown(2); // Continue from 2 (already showed 3)
+    }, 1000);
+  }
+
+  async function actuallyStartRecording() {
+    setStatus("starting");
+    setPanelMessage("Iniciando grabacion...");
 
     try {
       const rideId = await service.startRide(riderId);
@@ -539,14 +605,18 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
       startTimeRef.current = Date.now();
     } catch (error) {
       setStatus("idle");
+      setCountdownValue(null);
       setSaveError(error instanceof Error ? error.message : "No se pudo iniciar la rodada.");
+      setPanelMessage("Error al iniciar. Intenta de nuevo.");
       return;
     }
 
     engine.start(Date.now());
+    console.log('[ENGINE] started with config:', trackingProfile.config);
     setStatus("recording");
+    setCountdownValue(null);
     setMetrics({ speedKmh: 0, maxSpeedKmh: 0, distanceM: 0, avgSpeedKmh: 0, movingTimeSec: 0, pointsAccepted: 0 });
-    setPanelMessage("Grabando... GPS activo.");
+    setPanelMessage("Buscando fix inicial de GPS...");
     beginWatch();
     onRecordingStarted?.();
   }
@@ -557,6 +627,7 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
       watchIdRef.current = null;
     }
     setStatus("paused");
+    setMetrics(prev => ({ ...prev, speedKmh: 0 }));
     setPanelMessage("Grabacion pausada.");
   }
 
@@ -571,7 +642,7 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
     }
 
     setStatus("recording");
-    setPanelMessage("Rodada reanudada. GPS activo.");
+    setPanelMessage("Rodada reanudada. Buscando fix estable...");
     beginWatch();
   }
 
@@ -587,14 +658,30 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
       return;
     }
 
-    const movingTimeSec = Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000));
+    const movingTimeSec = Math.max(1, metrics.movingTimeSec);
     const allPoints = engine.getAllPoints();
 
-    // Detect segment attempts
-    const attempts = detectSegmentAttempts(
+    const detectedAttempts = detectSegmentAttempts(
       allPoints.map(p => ({ lat: p.lat, lng: p.lng, timestamp: p.timestamp })),
       activeSegment ? [activeSegment] : segments
     );
+
+    const liveAttempt = activeSegment
+      ? createLiveAttemptFromSnapshot({
+          snapshot: segmentSnapshot,
+          activeSegment,
+          riderId,
+          rideId: rideIdRef.current,
+        })
+      : null;
+
+    const localAttempts = buildAttemptsForLocalPersistence({
+      rideId: rideIdRef.current,
+      riderId,
+      activeSegment: activeSegment ?? null,
+      liveAttempt,
+      detectedAttempts,
+    });
 
     setStatus("saving");
     setPanelMessage("Guardando rodada...");
@@ -602,14 +689,6 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
     try {
       const pointsToPersist = await maybeMapMatchTrace(allPoints);
       await service.saveRidePoints(rideIdRef.current, pointsToPersist);
-      
-      if (attempts.length > 0) {
-        await service.saveSegmentAttempts(
-          rideIdRef.current,
-          riderId,
-          attempts.map(a => ({ segmentId: a.segmentId, elapsedTimeSec: a.elapsedTimeSec }))
-        );
-      }
 
       await service.finalizeRide(rideIdRef.current, {
         distanceM: metrics.distanceM,
@@ -617,15 +696,69 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
         elevationGainM: 0,
       });
 
-      setPanelMessage(attempts.length > 0 
-        ? `Rodada guardada. ${attempts.length} intento(s) detectado(s).`
-        : "Rodada guardada. Sin intentos en segmentos.");
+      const persistedAttempts = attemptsLocalService.saveAttemptsForRide(rideIdRef.current, localAttempts);
+      const pendingAttempts = attemptsLocalService.listPendingAttemptsByRide(rideIdRef.current);
+
+      let syncStatus: "synced" | "pending" | null = pendingAttempts.length ? "pending" : null;
+
+      if (pendingAttempts.length > 0) {
+        try {
+          await service.saveSegmentAttempts(
+            rideIdRef.current,
+            riderId,
+            pendingAttempts.map((attempt) => mapDomainAttemptToBackendInsert(attempt))
+          );
+          attemptsLocalService.markAttemptsSyncState(
+            rideIdRef.current,
+            pendingAttempts.map((attempt) => attempt.id),
+            "synced"
+          );
+          syncStatus = "synced";
+        } catch (syncError) {
+          attemptsLocalService.markAttemptsSyncState(
+            rideIdRef.current,
+            pendingAttempts.map((attempt) => attempt.id),
+            "failed",
+            syncError instanceof Error ? syncError.message : "sync_failed"
+          );
+          syncStatus = "pending";
+        }
+      }
+
+      setAttemptSyncStatus(syncStatus);
+
+      const completedLiveAttempt =
+        liveAttempt?.status === "completed"
+          ? persistedAttempts.find((attempt) => attempt.syncKey === liveAttempt.syncKey && attempt.status === "completed") ??
+            liveAttempt
+          : null;
+      if (completedLiveAttempt) {
+        const persistedOutcome = attemptsLocalService.getAttemptOutcome(completedLiveAttempt);
+        setAttemptFeedback({
+          status: "completed",
+          elapsedSec: persistedOutcome.elapsedSec,
+          isPersonalBest: persistedOutcome.isPersonalBest,
+          estimatedRank: persistedOutcome.estimatedRank,
+          reason: null,
+        });
+      }
+
+      const hasAttempts = localAttempts.length > 0;
+      const syncMessage =
+        syncStatus === "synced"
+          ? "Intento sincronizado."
+          : syncStatus === "pending"
+            ? "Pendiente de sincronizacion."
+            : "";
+
+      setPanelMessage(
+        hasAttempts
+          ? `Rodada guardada. ${localAttempts.length} intento(s) detectado(s). ${syncMessage}`.trim()
+          : "Rodada guardada. Sin intentos en segmentos."
+      );
       setStatus("idle");
-      routeRef.current = [];
       startTimeRef.current = null;
       rideIdRef.current = null;
-      setLastFixAt(null);
-      setGpsAccuracyM(null);
     } catch (error) {
       setStatus("paused");
       setSaveError(error instanceof Error ? error.message : "Error al guardar.");
@@ -636,22 +769,13 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
   return (
     <div className="space-y-4">
       {/* Live metrics */}
-      <Card className="p-4 sm:p-5">
+      <Card className="sticky top-2 z-20 border-slate-200 bg-white/95 p-4 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/90 sm:top-3 sm:p-5 lg:static lg:top-auto lg:z-auto lg:bg-white lg:shadow-none lg:backdrop-blur-0">
         <div className="mb-3 flex items-center justify-between gap-2">
           <h3 className="text-lg font-bold text-slate-900">Metricas en vivo</h3>
           <span className="chip min-h-8">GPS filtrado</span>
         </div>
-        <div className="mb-3 grid gap-2 sm:grid-cols-3">
-          <SignalCard label="Estado" value={isRecording ? "Grabando" : status === "paused" ? "Pausado" : "Listo"} tone={isRecording ? "ok" : "neutral"} />
-          <SignalCard label="Senal GPS" value={hasLiveFix ? "Estable" : "Inestable"} tone={hasLiveFix ? "ok" : "warn"} />
-          <SignalCard
-            label="Precision"
-            value={gpsAccuracyM ? `${Math.round(gpsAccuracyM)} m` : "Sin fix"}
-            tone={gpsAccuracyM && gpsAccuracyM <= 20 ? "ok" : "warn"}
-            helper={getTrackingQualityLabel(trackingQuality)}
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <MetricCard 
             label="Velocidad" 
             value={metrics.speedKmh} 
@@ -660,7 +784,7 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
             reduced={reduced}
           />
           <MetricCard 
-            label="Max" 
+            label="Velocidad max" 
             value={metrics.maxSpeedKmh} 
             unit="km/h"
             reduced={reduced}
@@ -677,33 +801,77 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
             unit="km/h"
             reduced={reduced}
           />
-        </div>
-        
-        {/* Time tracking */}
-        <div className="mt-3 border-t border-slate-200 pt-3">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-slate-600">Tiempo en movimiento</span>
-            <span className="font-mono font-bold text-slate-900">
-              {Math.floor(metrics.movingTimeSec / 60).toString().padStart(2, '0')}:
-              {(metrics.movingTimeSec % 60).toString().padStart(2, '0')}
-            </span>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 sm:px-3.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Tiempo mov.</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+              {movingMinutes}:{movingSeconds}
+            </p>
           </div>
         </div>
 
-        <p className="mt-2 text-center text-xs text-slate-500" role="status" aria-live="polite">
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-200 pt-2 text-[10px] text-slate-500 sm:text-[11px]">
+          <span className="inline-flex items-center gap-1">
+            <span className={`h-1.5 w-1.5 rounded-full ${isRecording ? "bg-emerald-500" : "bg-slate-400"}`} />
+            {recordingStatus}
+          </span>
+          <span>{gpsStatus}</span>
+          <span>
+            Precision: {precisionStatus}
+          </span>
+          <span>{getTrackingQualityLabel(trackingQuality)}</span>
+        </div>
+
+        <p className="mt-2 text-xs text-slate-500" role="status" aria-live="polite">
           {panelMessage}
         </p>
       </Card>
 
       {/* Active segment indicator */}
       {activeSegment && (
-        <Card className="border-amber-200 bg-amber-50 p-3.5">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-            <span className="text-sm font-medium text-amber-800">
-              Segmento activo: {activeSegment.name}
+        <Card className={`p-3.5 ${getSegmentStatusPalette(segmentSnapshot?.status ?? "idle")}`}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className={`h-2 w-2 rounded-full ${getSegmentStatusDot(segmentSnapshot?.status ?? "idle")}`} />
+              <span className="text-sm font-medium">Segmento: {activeSegment.name}</span>
+            </div>
+            <span className="rounded-md border border-current/25 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+              {getSegmentStatusLabel(segmentSnapshot?.status ?? "idle")}
             </span>
           </div>
+
+          <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+            <p>Progreso: <span className="font-semibold tabular-nums">{Math.round(segmentSnapshot?.progressPct ?? 0)}%</span></p>
+            <p>Tiempo: <span className="font-semibold tabular-nums">{formatElapsed(segmentSnapshot?.elapsedSec ?? 0)}</span></p>
+            <p>Dist. inicio: <span className="font-semibold tabular-nums">{formatMeters(segmentSnapshot?.distanceToStartM ?? Number.POSITIVE_INFINITY)}</span></p>
+            <p>Dist. meta: <span className="font-semibold tabular-nums">{formatMeters(segmentSnapshot?.distanceToEndM ?? Number.POSITIVE_INFINITY)}</span></p>
+          </div>
+
+          {segmentSnapshot?.reason && (
+            <p className="mt-2 text-[11px] font-medium">Motivo: {getSegmentReasonLabel(segmentSnapshot.reason)}</p>
+          )}
+
+          {attemptFeedback && (
+            <div className="mt-2 rounded-lg border border-current/25 bg-white/55 px-2.5 py-2 text-[11px]">
+              <p className="font-semibold">{getAttemptFeedbackHeadline(attemptFeedback)}</p>
+              {attemptFeedback.status === "completed" && attemptFeedback.elapsedSec !== null && (
+                <p className="mt-1">
+                  Tiempo final {formatElapsed(attemptFeedback.elapsedSec)}
+                  {attemptFeedback.isPersonalBest ? " - Nuevo PB" : ""}
+                  {typeof attemptFeedback.estimatedRank === "number" ? ` - Puesto local #${attemptFeedback.estimatedRank}` : ""}
+                </p>
+              )}
+              {attemptFeedback.status !== "completed" && (
+                <p className="mt-1">
+                  {formatAttemptFeedbackReason(attemptFeedback.reason)}
+                </p>
+              )}
+              {attemptSyncStatus && (
+                <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-600">
+                  {attemptSyncStatus === "synced" ? "Intento sincronizado" : "Pendiente de sincronizacion"}
+                </p>
+              )}
+            </div>
+          )}
         </Card>
       )}
 
@@ -712,10 +880,10 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
         <div className="grid gap-2 sm:grid-cols-4">
           <Button 
             onClick={startRecording} 
-            disabled={isRecording || status === "starting" || status === "saving" || status === "paused"}
+            disabled={isRecording || status === "countdown" || status === "starting" || status === "saving" || status === "paused"}
             className="min-h-11 w-full"
           >
-            {status === "starting" ? "Iniciando..." : isRecording ? "Grabando..." : "Iniciar"}
+            {status === "countdown" ? `Preparate...` : status === "starting" ? "Iniciando..." : isRecording ? "Grabando..." : "Iniciar"}
           </Button>
           <Button 
             variant="secondary" 
@@ -736,7 +904,7 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
           <Button 
             variant="ghost" 
             onClick={finishRecording} 
-            disabled={status === "idle" || status === "starting"}
+            disabled={status === "idle" || status === "countdown" || status === "starting"}
             className="min-h-11 w-full"
           >
             {status === "saving" ? "Guardando..." : "Finalizar"}
@@ -745,33 +913,206 @@ export function RecordingPanel({ riderId, onMetricsUpdate, onRouteUpdate, active
         {saveError && <p className="mt-2 text-sm font-medium text-rose-600">{saveError}</p>}
       </Card>
 
-      {/* Segments info */}
-      {isSegmentsLoading ? (
-        <Card className="p-3.5">
-          <LoadingDots text="Cargando segmentos..." />
-        </Card>
-      ) : segmentsError ? (
-        <ErrorState title="Error" description={segmentsError} />
-      ) : segments.length === 0 ? (
-        <EmptyState title="Sin segmentos" description="No hay segmentos disponibles para intentar en este momento." compact />
-      ) : (
-        <Card className="p-3">
-          <p className="mb-2 text-xs text-slate-500">
-            {segments.length} segmento(s) disponible(s) para intentar
-          </p>
-        </Card>
+      {/* Countdown overlay */}
+      {status === "countdown" && countdownValue !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="text-center">
+            <p className="mb-4 text-xl font-medium text-white/80">Prepárate</p>
+            <p className="tabular-nums text-[150px] font-bold leading-none text-white drop-shadow-2xl animate-ping-short">
+              {countdownValue}
+            </p>
+            {countdownValue === 0 && (
+              <p className="mt-6 text-3xl font-bold text-emerald-400">¡YA!</p>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-function SignalCard({ label, value, tone, helper }: { label: string; value: string; tone: "ok" | "warn" | "neutral"; helper?: string }) {
-  const toneClass = tone === "ok" ? "border-emerald-200 bg-emerald-50" : tone === "warn" ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-slate-50";
-  return (
-    <div className={`rounded-xl border px-3 py-2 ${toneClass}`}>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-slate-900">{value}</p>
-      {helper ? <p className="mt-0.5 text-[11px] text-slate-600">{helper}</p> : null}
-    </div>
+interface LiveAttemptBuildParams {
+  snapshot: SegmentLiveSnapshot | null;
+  activeSegment: SegmentDefinition;
+  riderId: string;
+  rideId: string | null;
+}
+
+interface BuildLocalAttemptsParams {
+  rideId: string;
+  riderId: string;
+  activeSegment: SegmentDefinition | null;
+  liveAttempt: SegmentAttempt | null;
+  detectedAttempts: PostRideDetectedAttempt[];
+}
+
+function createLiveAttemptFromSnapshot(params: LiveAttemptBuildParams): SegmentAttempt | null {
+  const { snapshot, activeSegment, riderId, rideId } = params;
+  if (!snapshot || !rideId) return null;
+
+  if (snapshot.status !== "completed" && snapshot.status !== "abandoned" && snapshot.status !== "invalid") {
+    return null;
+  }
+
+  if (!snapshot.startedAt) return null;
+
+  const completedAtMs = snapshot.completedAt ?? Date.now();
+  const startedAt = new Date(snapshot.startedAt).toISOString();
+  const completedAt = new Date(completedAtMs).toISOString();
+  const roundedElapsed = Math.round(snapshot.elapsedSec);
+  const elapsedSec = roundedElapsed > 0 ? roundedElapsed : null;
+
+  return {
+    id: crypto.randomUUID(),
+    segmentId: activeSegment.id,
+    syncKey: buildSegmentAttemptSyncKey({
+      riderId,
+      rideId,
+      segmentId: activeSegment.id,
+      startedAt,
+    }),
+    riderId,
+    rideId,
+    status: snapshot.status,
+    startedAt,
+    completedAt,
+    elapsedSec,
+    progressFinal: clampPct(snapshot.progressPct),
+    distanceInSegmentM: null,
+    reason: snapshot.reason,
+    metadata: {
+      source: "live",
+      onRouteScore: snapshot.onRouteScore,
+    },
+    recordedAt: completedAt,
+  };
+}
+
+function buildAttemptsForLocalPersistence(params: BuildLocalAttemptsParams): SegmentAttempt[] {
+  const { rideId, riderId, activeSegment, liveAttempt, detectedAttempts } = params;
+  const attempts: SegmentAttempt[] = [];
+
+  if (liveAttempt) {
+    attempts.push(liveAttempt);
+  }
+
+  const shouldSkipDetectedForActiveSegment = Boolean(
+    liveAttempt && activeSegment && liveAttempt.segmentId === activeSegment.id
   );
+
+  for (const detected of detectedAttempts) {
+    if (shouldSkipDetectedForActiveSegment && activeSegment?.id === detected.segmentId) {
+      continue;
+    }
+
+    attempts.push({
+      id: crypto.randomUUID(),
+      segmentId: detected.segmentId,
+      syncKey: buildSegmentAttemptSyncKey({
+        riderId,
+        rideId,
+        segmentId: detected.segmentId,
+        startedAt: new Date(detected.startedAt).toISOString(),
+      }),
+      rideId,
+      riderId,
+      status: "completed",
+      startedAt: new Date(detected.startedAt).toISOString(),
+      completedAt: new Date(detected.endedAt).toISOString(),
+      elapsedSec: Math.max(1, Math.round(detected.elapsedTimeSec)),
+      progressFinal: 100,
+      distanceInSegmentM: null,
+      reason: null,
+      metadata: {
+        source: "post_ride",
+        onRouteRatio: detected.onRouteRatio,
+      },
+      recordedAt: new Date(detected.endedAt).toISOString(),
+    });
+  }
+
+  return attempts;
+}
+
+function buildCompletedPanelMessage(outcome: SegmentAttemptOutcome): string {
+  const base = `Segmento completado en ${formatElapsed(outcome.elapsedSec ?? 0)}.`;
+  const pb = outcome.isPersonalBest ? " Nuevo PB local." : "";
+  const ranking = typeof outcome.estimatedRank === "number" ? ` Ranking estimado local #${outcome.estimatedRank}.` : "";
+  return `${base}${pb}${ranking}`;
+}
+
+function getAttemptFeedbackHeadline(feedback: AttemptUiFeedback): string {
+  if (feedback.status === "completed") {
+    return feedback.isPersonalBest ? "Completado - Nuevo PB" : "Completado";
+  }
+
+  if (feedback.status === "abandoned") return "Intento abandonado";
+  return "Intento invalido";
+}
+
+function formatAttemptFeedbackReason(reason: string | null): string {
+  const normalized = normalizeSegmentReason(reason);
+  return normalized ? getSegmentReasonLabel(normalized) : "Sin motivo tecnico";
+}
+
+function normalizeSegmentReason(reason: string | null): NonNullable<SegmentLiveSnapshot["reason"]> | null {
+  if (reason === "off_route") return "off_route";
+  if (reason === "gps_gap") return "gps_gap";
+  if (reason === "wrong_direction") return "wrong_direction";
+  if (reason === "too_fast_completion") return "too_fast_completion";
+  return null;
+}
+
+function clampPct(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Number(value.toFixed(2))));
+}
+
+function getSegmentStatusLabel(status: SegmentLiveStatus): string {
+  if (status === "near_start") return "cerca inicio";
+  if (status === "active") return "activo";
+  if (status === "completed") return "completado";
+  if (status === "abandoned") return "abandonado";
+  if (status === "invalid") return "invalido";
+  return "idle";
+}
+
+function getSegmentStatusPalette(status: SegmentLiveStatus): string {
+  if (status === "near_start") return "border-amber-200 bg-amber-50 text-amber-900";
+  if (status === "active") return "border-sky-200 bg-sky-50 text-sky-900";
+  if (status === "completed") return "border-emerald-200 bg-emerald-50 text-emerald-900";
+  if (status === "abandoned") return "border-rose-200 bg-rose-50 text-rose-900";
+  if (status === "invalid") return "border-slate-300 bg-slate-100 text-slate-800";
+  return "border-slate-200 bg-slate-50 text-slate-800";
+}
+
+function getSegmentStatusDot(status: SegmentLiveStatus): string {
+  if (status === "near_start") return "bg-amber-500";
+  if (status === "active") return "bg-sky-500 animate-pulse";
+  if (status === "completed") return "bg-emerald-500";
+  if (status === "abandoned") return "bg-rose-500";
+  if (status === "invalid") return "bg-slate-500";
+  return "bg-slate-400";
+}
+
+function getSegmentReasonLabel(reason: NonNullable<SegmentLiveSnapshot["reason"]>): string {
+  if (reason === "off_route") return "Desvio sostenido fuera de la ruta";
+  if (reason === "gps_gap") return "Corte largo de GPS";
+  if (reason === "wrong_direction") return "Retroceso fuerte en el segmento";
+  return "Finalizacion demasiado rapida";
+}
+
+function formatElapsed(elapsedSec: number): string {
+  const safeSec = Math.max(0, Math.floor(elapsedSec));
+  const minutes = Math.floor(safeSec / 60)
+    .toString()
+    .padStart(2, "0");
+  const seconds = (safeSec % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
+function formatMeters(distanceM: number): string {
+  if (!Number.isFinite(distanceM)) return "--";
+  if (distanceM >= 1000) return `${(distanceM / 1000).toFixed(2)} km`;
+  return `${Math.round(distanceM)} m`;
 }

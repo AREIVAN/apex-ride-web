@@ -1,9 +1,10 @@
 import { z } from "zod";
 
-import type { Database } from "@/lib/supabase/database.types";
+import type { Database, Json } from "@/lib/supabase/database.types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { segmentDefinitionSchema, trackPointSchema, type SegmentDefinition, type TrackPoint } from "../lib/tracking-types";
+import type { SegmentAttempt } from "@/types/domain";
 
 const uuidSchema = z.string().uuid();
 
@@ -14,8 +15,17 @@ interface FinalizeRideMetrics {
 }
 
 interface SegmentAttemptInsert {
+  syncKey: string;
   segmentId: string;
-  elapsedTimeSec: number;
+  status: "completed" | "abandoned" | "invalid";
+  startedAt: string;
+  completedAt: string | null;
+  elapsedTimeSec: number | null;
+  progressFinal: number;
+  reason: string | null;
+  distanceInSegmentM?: number | null;
+  metadata?: unknown;
+  recordedAt: string;
 }
 
 interface TrackingService {
@@ -121,16 +131,38 @@ export function createTrackingService(client: SupabaseClient<Database>): Trackin
       }
 
       const payload = attempts.map((attempt) => ({
+        sync_key: attempt.syncKey,
         segment_id: uuidSchema.parse(attempt.segmentId),
         ride_id: safeRideId,
         rider_id: safeRiderId,
-        elapsed_time_sec: Math.max(1, Math.round(attempt.elapsedTimeSec))
+        status: attempt.status,
+        started_at: new Date(attempt.startedAt).toISOString(),
+        completed_at: attempt.completedAt ? new Date(attempt.completedAt).toISOString() : null,
+        elapsed_time_sec:
+          attempt.status === "completed" && typeof attempt.elapsedTimeSec === "number"
+            ? Math.max(1, Math.round(attempt.elapsedTimeSec))
+            : null,
+        progress_final: Number(attempt.progressFinal.toFixed(2)),
+        reason: attempt.reason,
+        distance_in_segment_m: typeof attempt.distanceInSegmentM === "number" ? Number(attempt.distanceInSegmentM.toFixed(2)) : null,
+        metadata: toJsonValue(attempt.metadata),
+        recorded_at: new Date(attempt.recordedAt).toISOString()
       }));
 
-      const { error } = await client.from("segment_attempts").insert(payload);
-      if (error) {
-        throw new Error(`Unable to store segment attempts: ${error.message}`);
+      const { error } = await client.rpc("sync_segment_attempts", {
+        p_attempts: payload
+      });
+
+      if (!error) {
+        return;
       }
+
+      if (canFallbackToLegacyInsert(error.message)) {
+        await insertLegacyAttempts(client, safeRideId, safeRiderId, attempts);
+        return;
+      }
+
+      throw new Error(`Unable to store segment attempts: ${error.message}`);
     },
 
     async finalizeRide(rideId, metrics) {
@@ -158,5 +190,75 @@ export function createTrackingService(client: SupabaseClient<Database>): Trackin
         throw new Error(`Unable to finalize ride: ${error.message}`);
       }
     }
+  };
+}
+
+function toJsonValue(value: unknown): Json {
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => toJsonValue(item));
+  }
+
+  if (value && typeof value === "object") {
+    const output: { [key: string]: Json | undefined } = {};
+    for (const [key, item] of Object.entries(value)) {
+      output[key] = toJsonValue(item);
+    }
+    return output;
+  }
+
+  return {};
+}
+
+function canFallbackToLegacyInsert(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("could not find the function public.sync_segment_attempts") ||
+    normalized.includes("column \"status\" of relation \"segment_attempts\" does not exist") ||
+    normalized.includes("column \"started_at\" of relation \"segment_attempts\" does not exist")
+  );
+}
+
+async function insertLegacyAttempts(
+  client: SupabaseClient<Database>,
+  rideId: string,
+  riderId: string,
+  attempts: SegmentAttemptInsert[]
+): Promise<void> {
+  const legacyPayload = attempts
+    .filter((attempt) => attempt.status === "completed" && typeof attempt.elapsedTimeSec === "number")
+    .map((attempt) => ({
+      segment_id: attempt.segmentId,
+      ride_id: rideId,
+      rider_id: riderId,
+      elapsed_time_sec: Math.max(1, Math.round(attempt.elapsedTimeSec ?? 0))
+    }));
+
+  if (!legacyPayload.length) {
+    return;
+  }
+
+  const { error } = await client.from("segment_attempts").insert(legacyPayload);
+  if (error) {
+    throw new Error(`Unable to store segment attempts with legacy fallback: ${error.message}`);
+  }
+}
+
+export function mapDomainAttemptToBackendInsert(attempt: SegmentAttempt): SegmentAttemptInsert {
+  return {
+    syncKey: attempt.syncKey,
+    segmentId: attempt.segmentId,
+    status: attempt.status,
+    startedAt: attempt.startedAt,
+    completedAt: attempt.completedAt,
+    elapsedTimeSec: attempt.elapsedSec,
+    progressFinal: attempt.progressFinal,
+    reason: attempt.reason,
+    distanceInSegmentM: attempt.distanceInSegmentM ?? null,
+    metadata: attempt.metadata,
+    recordedAt: attempt.recordedAt
   };
 }

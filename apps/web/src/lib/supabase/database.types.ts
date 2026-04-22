@@ -231,10 +231,18 @@ export interface Database {
       segment_attempts: {
         Row: {
           id: string;
+          sync_key: string;
           segment_id: string;
           ride_id: string;
           rider_id: string;
-          elapsed_time_sec: number;
+          status: "completed" | "abandoned" | "invalid";
+          started_at: string;
+          completed_at: string | null;
+          elapsed_time_sec: number | null;
+          progress_final: number;
+          reason: string | null;
+          distance_in_segment_m: number | null;
+          metadata: Json;
           avg_power_w: number | null;
           avg_heart_rate: number | null;
           recorded_at: string;
@@ -242,17 +250,33 @@ export interface Database {
         };
         Insert: {
           id?: string;
+          sync_key?: string;
           segment_id: string;
           ride_id: string;
           rider_id: string;
-          elapsed_time_sec: number;
+          status?: "completed" | "abandoned" | "invalid";
+          started_at?: string;
+          completed_at?: string | null;
+          elapsed_time_sec?: number | null;
+          progress_final?: number;
+          reason?: string | null;
+          distance_in_segment_m?: number | null;
+          metadata?: Json;
           avg_power_w?: number | null;
           avg_heart_rate?: number | null;
           recorded_at?: string;
           updated_at?: string;
         };
         Update: {
-          elapsed_time_sec?: number;
+          sync_key?: string;
+          status?: "completed" | "abandoned" | "invalid";
+          started_at?: string;
+          completed_at?: string | null;
+          elapsed_time_sec?: number | null;
+          progress_final?: number;
+          reason?: string | null;
+          distance_in_segment_m?: number | null;
+          metadata?: Json;
           avg_power_w?: number | null;
           avg_heart_rate?: number | null;
           recorded_at?: string;
@@ -427,6 +451,15 @@ export interface Database {
           rider_name: string;
           best_elapsed_time_sec: number;
           best_attempted_at: string;
+        }[];
+      };
+      sync_segment_attempts: {
+        Args: { p_attempts: Json };
+        Returns: {
+          sync_key: string;
+          id: string;
+          status: "completed" | "abandoned" | "invalid";
+          was_inserted: boolean;
         }[];
       };
     };

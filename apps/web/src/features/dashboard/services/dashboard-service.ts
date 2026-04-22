@@ -52,6 +52,7 @@ export async function getDashboardSnapshot(client: SupabaseClient<Database>, rid
       .from("segment_attempts")
       .select("segment_id,elapsed_time_sec,recorded_at", { count: "exact" })
       .eq("rider_id", safeRiderId)
+      .eq("status", "completed")
       .gte("recorded_at", monthAgo)
       .order("recorded_at", { ascending: false })
       .limit(20)

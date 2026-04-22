@@ -36,14 +36,34 @@ type RasterStyleSpecification = {
 
 export type ResolvedMapStyle = string | RasterStyleSpecification;
 
+const MAPBOX_TOKEN_PLACEHOLDERS = new Set([
+  "pk.your_mapbox_public_token",
+  "your_mapbox_public_token",
+  "mapbox_token",
+  "next_public_mapbox_token",
+  "next_public_mapbox_access_token",
+]);
+
+function isValidPublicMapboxToken(rawToken: string | undefined): rawToken is string {
+  if (!rawToken) return false;
+
+  const token = rawToken.trim();
+  if (!token) return false;
+
+  const normalized = token.toLowerCase();
+  if (MAPBOX_TOKEN_PLACEHOLDERS.has(normalized)) return false;
+
+  return token.startsWith("pk.");
+}
+
 /**
  * Get the Mapbox access token from environment variables
  * @throws Error if token is not configured
  */
 export function getMapboxToken(): string {
-  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-  
-  if (!token) {
+  const rawToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+
+  if (!rawToken) {
     console.warn(
       "[Mapbox] WARNING: NEXT_PUBLIC_MAPBOX_TOKEN not configured. " +
       "Mapbox features will not work. " +
@@ -51,7 +71,16 @@ export function getMapboxToken(): string {
     );
     return "";
   }
-  
+
+  const token = rawToken.trim();
+  if (!isValidPublicMapboxToken(token)) {
+    console.warn(
+      "[Mapbox] WARNING: Invalid NEXT_PUBLIC_MAPBOX_TOKEN detected. " +
+      "Expected a valid public token starting with 'pk.'. Falling back to OSM style."
+    );
+    return "";
+  }
+
   return token;
 }
 
@@ -115,7 +144,9 @@ export const MAP_FALLBACK_STYLE: RasterStyleSpecification = {
 };
 
 export function resolveMapStyle(token?: string | null): ResolvedMapStyle {
-  return token ? MAP_STYLES.streets : MAP_FALLBACK_STYLE;
+  return isValidPublicMapboxToken(token ?? undefined)
+    ? MAP_STYLES.streets
+    : MAP_FALLBACK_STYLE;
 }
 
 /**

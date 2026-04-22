@@ -5,6 +5,7 @@ import { createSegmentsService } from "@/features/segments/services/segments-ser
 import { Button } from "@/features/shared/ui/button";
 import { EmptyState } from "@/features/shared/ui/empty-state";
 import { PageHeader } from "@/features/shared/ui/page-header";
+import type { LeaderboardRow } from "@/types/domain";
 import Link from "next/link";
 
 export default async function LeaderboardsPage() {
@@ -12,7 +13,14 @@ export default async function LeaderboardsPage() {
 
   try {
     const segments = await createSegmentsService(client).listPublic();
-    const leaderboardBySegment = await createLeaderboardService(client).bySegments(segments.map((segment) => segment.id));
+    let leaderboardBySegment: Record<string, LeaderboardRow[]> = {};
+    let backendAvailable = true;
+
+    try {
+      leaderboardBySegment = await createLeaderboardService(client).bySegments(segments.map((segment) => segment.id));
+    } catch {
+      backendAvailable = false;
+    }
 
     if (!segments.length) {
       return (
@@ -30,7 +38,12 @@ export default async function LeaderboardsPage() {
           title="Clasificaciones"
           description="Vista competitiva con foco en posicion personal, filtros temporales y lectura por alcance."
         />
-        <LeaderboardsHub segments={segments} leaderboardBySegment={leaderboardBySegment} userId={user.id} />
+        <LeaderboardsHub
+          segments={segments}
+          leaderboardBySegment={leaderboardBySegment}
+          userId={user.id}
+          backendAvailable={backendAvailable}
+        />
       </div>
     );
   } catch (error) {

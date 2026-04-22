@@ -98,6 +98,7 @@ export function createRidesService(client: SupabaseClient<Database>): RidesServi
         .select("id,segment_id,elapsed_time_sec,recorded_at,segments(name),rides!inner(rider_id)")
         .eq("ride_id", safeRideId)
         .eq("rider_id", safeRiderId)
+        .eq("status", "completed")
         .eq("rides.rider_id", safeRiderId)
         .order("recorded_at", { ascending: false });
 
