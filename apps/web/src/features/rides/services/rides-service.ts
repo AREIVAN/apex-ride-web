@@ -95,11 +95,10 @@ export function createRidesService(client: SupabaseClient<Database>): RidesServi
 
       const { data, error } = await client
         .from("segment_attempts")
-        .select("id,segment_id,elapsed_time_sec,recorded_at,segments(name),rides!inner(rider_id)")
+        .select("id,segment_id,elapsed_time_sec,recorded_at,segments(name)")
         .eq("ride_id", safeRideId)
         .eq("rider_id", safeRiderId)
         .eq("status", "completed")
-        .eq("rides.rider_id", safeRiderId)
         .order("recorded_at", { ascending: false });
 
       if (error) throw new Error(`Unable to load ride attempts: ${error.message}`);
