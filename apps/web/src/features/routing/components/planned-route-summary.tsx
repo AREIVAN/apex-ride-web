@@ -10,6 +10,7 @@ interface PlannedRouteSummaryProps {
   route: PlannedRoute | null;
   onClear: () => void;
   onChangeDestination: () => void;
+  onScrollToMap?: () => void;
   className?: string;
 }
 
@@ -17,6 +18,7 @@ export function PlannedRouteSummary({
   route,
   onClear,
   onChangeDestination,
+  onScrollToMap,
   className,
 }: PlannedRouteSummaryProps) {
   if (!route) return null;
@@ -54,6 +56,15 @@ export function PlannedRouteSummary({
         </div>
 
         <div className="flex shrink-0 flex-col gap-1.5">
+          {onScrollToMap && (
+            <Button
+              variant="secondary"
+              onClick={onScrollToMap}
+              className="h-7 px-2 text-xs"
+            >
+              Ver en mapa
+            </Button>
+          )}
           <Button
             variant="ghost"
             onClick={onChangeDestination}

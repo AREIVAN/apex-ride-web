@@ -11,6 +11,7 @@ import { Card } from "@/features/shared/ui/card";
 import { Button } from "@/features/shared/ui/button";
 import { useAppShellNavigationMode } from "@/features/shared/ui/app-shell";
 import { LoadingState } from "@/features/shared/ui/loading-state";
+import { cn } from "@/lib/utils/cn";
 import type { SegmentDefinition } from "@/features/tracking/lib/tracking-types";
 import type { SegmentLiveSnapshot } from "@/features/tracking/lib/segment-live-tracker";
 import { DestinationSearchBox } from "@/features/routing/components/destination-search-box";
@@ -213,6 +214,14 @@ export default function RecordPage() {
     setRouteError(null);
   }, []);
 
+  // Scroll to map (for mobile when tapping "Ver ruta en mapa")
+  const scrollToMap = useCallback(() => {
+    const mapEl = document.getElementById("live-map-container");
+    if (mapEl) {
+      mapEl.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
+
   // Change destination (show search again)
   const handleChangeDestination = useCallback(() => {
     setPlannedRoute(null);
@@ -284,6 +293,7 @@ export default function RecordPage() {
               route={plannedRoute}
               onClear={handleClearRoute}
               onChangeDestination={handleChangeDestination}
+              onScrollToMap={scrollToMap}
             />
           )}
           {routeError && (
@@ -299,7 +309,54 @@ export default function RecordPage() {
         </div>
       )}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_390px]">
-        <div className="order-1 lg:order-2">
+        {/* Mobile order: Map first (with planned route visible), then RecordingPanel/metrics */}
+        <div className="order-1 lg:order-1">
+          <div className="flex flex-col gap-2 sm:gap-3">
+            {/* Map - show FIRST in mobile when there's a planned route */}
+            <div 
+              id="live-map-container"
+              className={cn(
+              "flex flex-col",
+              // Mobile: taller when there's planned route to show the route clearly
+              plannedRoute 
+                ? "h-[360px] sm:h-[420px]" 
+                : "h-[42vh] min-h-[280px] sm:h-[52vh] sm:min-h-[340px]",
+              // Desktop: full height
+              "lg:h-[calc(100vh-210px)]"
+            )}>
+              <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600">
+                <span>{followUser ? "Camara siguiendo GPS" : "Camara libre"}</span>
+                <button
+                  type="button"
+                  onClick={() => setFollowUser(value => !value)}
+                  className="focus-ring rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 transition hover:bg-slate-50"
+                >
+                  {followUser ? "Desactivar follow" : "Activar follow"}
+                </button>
+              </div>
+              <MapContainer
+                title={selectedSegment ? `Segmento: ${selectedSegment.name}` : "Mapa en vivo"}
+                useUserLocation={true}
+                routeCoordinates={liveRoute}
+                trackSamples={trackSamples}
+                segmentCoordinates={segmentCoordinates}
+                recenterTrigger={recenterTrigger}
+                currentPosition={currentPosition}
+                segmentLiveSnapshot={segmentLiveSnapshot}
+                followCurrentPosition={followUser}
+                onFollowInterrupted={() => setFollowUser(false)}
+                preserveCameraOnRouteUpdates={true}
+                plannedRouteCoordinates={plannedRoute?.geometry ?? []}
+                destinationCoordinate={plannedRoute?.destination.coordinate ?? pendingDestination?.coordinate ?? null}
+                plannedRouteFitBounds={(!rideState || rideState.status === "idle") && !!plannedRoute}
+                onUserLocationChange={setMapUserLocation}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* RecordingPanel - SECOND in mobile, first in desktop (right sidebar) */}
+        <div className="order-2 lg:order-2">
           <RecordingPanel
             riderId={user.id}
             activeSegment={activeSegment}
@@ -312,36 +369,6 @@ export default function RecordPage() {
               recenterMap();
             }}
             plannedRouteCoordinates={plannedRoute?.geometry}
-          />
-        </div>
-
-        <div className="order-2 flex h-[42vh] min-h-[280px] flex-col gap-2 sm:h-[52vh] sm:min-h-[340px] lg:order-1 lg:h-[calc(100vh-210px)]">
-          <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600">
-            <span>{followUser ? "Camara siguiendo GPS" : "Camara libre"}</span>
-            <button
-              type="button"
-              onClick={() => setFollowUser(value => !value)}
-              className="focus-ring rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 transition hover:bg-slate-50"
-            >
-              {followUser ? "Desactivar follow" : "Activar follow"}
-            </button>
-          </div>
-          <MapContainer
-            title={selectedSegment ? `Segmento: ${selectedSegment.name}` : "Mapa en vivo"}
-            useUserLocation={true}
-            routeCoordinates={liveRoute}
-            trackSamples={trackSamples}
-            segmentCoordinates={segmentCoordinates}
-            recenterTrigger={recenterTrigger}
-            currentPosition={currentPosition}
-            segmentLiveSnapshot={segmentLiveSnapshot}
-            followCurrentPosition={followUser}
-            onFollowInterrupted={() => setFollowUser(false)}
-            preserveCameraOnRouteUpdates={true}
-            plannedRouteCoordinates={plannedRoute?.geometry ?? []}
-            destinationCoordinate={plannedRoute?.destination.coordinate ?? pendingDestination?.coordinate ?? null}
-            plannedRouteFitBounds={(!rideState || rideState.status === "idle") && !!plannedRoute}
-            onUserLocationChange={setMapUserLocation}
           />
         </div>
 
