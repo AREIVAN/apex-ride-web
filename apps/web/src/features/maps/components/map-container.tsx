@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { MutableRefObject } from "react";
 import type { FeatureCollection, LineString } from "geojson";
 
 import mapboxgl from "mapbox-gl";
@@ -211,8 +212,10 @@ export function MapContainer({
   const isUsingFallbackStyle = useRef(false);
   const hasAttemptedFallback = useRef(false);
   const currentPositionMarker = useRef<mapboxgl.Marker | null>(null);
+  const routeMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const segmentMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const lastFollowAtRef = useRef(0);
+  const isProgrammaticCameraMoveRef = useRef(false);
 
   const safeRouteCoordinates = useMemo(
     () => routeCoordinates ? filterValidCoordinates(routeCoordinates) : [],
@@ -230,12 +233,40 @@ export function MapContainer({
     [trackSamples]
   );
   const safeCurrentPosition = useMemo(() => normalizeCoordinate(currentPosition), [currentPosition]);
+  const routeTailPosition = useMemo(
+    () => safeRouteCoordinates.at(-1) ?? null,
+    [safeRouteCoordinates]
+  );
+  const visualPositionStateRef = useRef<{
+    currentKey: string | null;
+    routeTailKey: string | null;
+    position: [number, number] | null;
+  }>({ currentKey: null, routeTailKey: null, position: null });
+  const visualCurrentPosition = useMemo(() => {
+    const currentKey = safeCurrentPosition ? coordinateKey(safeCurrentPosition) : null;
+    const routeTailKey = routeTailPosition ? coordinateKey(routeTailPosition) : null;
+    const previous = visualPositionStateRef.current;
+
+    const position =
+      safeCurrentPosition && currentKey !== previous.currentKey
+        ? safeCurrentPosition
+        : routeTailPosition && routeTailKey !== previous.routeTailKey
+          ? routeTailPosition
+          : safeCurrentPosition ?? routeTailPosition;
+
+    visualPositionStateRef.current = { currentKey, routeTailKey, position };
+    return position;
+  }, [routeTailPosition, safeCurrentPosition]);
+  const currentPositionBearing = useMemo(
+    () => resolveCurrentPositionBearing(safeTrackSamples, safeRouteCoordinates, visualCurrentPosition),
+    [safeRouteCoordinates, safeTrackSamples, visualCurrentPosition]
+  );
   const segmentRelation = useMemo(
     () =>
-      safeCurrentPosition && safeSegmentCoordinates.length >= 2
-        ? computeSegmentRelation(safeCurrentPosition, safeSegmentCoordinates)
+      visualCurrentPosition && safeSegmentCoordinates.length >= 2
+        ? computeSegmentRelation(visualCurrentPosition, safeSegmentCoordinates)
         : null,
-    [safeCurrentPosition, safeSegmentCoordinates]
+    [safeSegmentCoordinates, visualCurrentPosition]
   );
   const snapshotRelation = useMemo(() => {
     if (!segmentLiveSnapshot || segmentLiveSnapshot.projectedSegmentIndex === null) {
@@ -380,7 +411,7 @@ export function MapContainer({
     const drawRoute = () => {
       if (!map.current) return;
 
-      if (safeRouteCoordinates.length === 0) {
+      if (safeRouteCoordinates.length < 2) {
         clearGeoJsonLayers(map.current, [
           "ride-route-layer",
           "ride-route-layer-outline",
@@ -393,7 +424,7 @@ export function MapContainer({
       }
 
       const speedSegments = buildSpeedSegmentFeatureCollection(safeTrackSamples);
-      const canRenderSpeedRoute = speedSegments.features.length >= 3;
+      const canRenderSpeedRoute = showSpeedLegend && speedSegments.features.length >= 3;
 
       if (canRenderSpeedRoute) {
         upsertSegmentSpeedLayer(map.current, "ride-route-speed", "ride-route-speed-layer", speedSegments);
@@ -409,20 +440,21 @@ export function MapContainer({
           layerId: "ride-route-layer",
           coordinates: safeRouteCoordinates,
           color: ROUTE_COLORS.live,
-          width: ROUTE_WIDTHS.live,
-          outlineColor: ROUTE_COLORS.outline,
-          outlineWidth: ROUTE_WIDTHS.liveOutline,
+          width: 4.5,
+          outlineColor: "#0f172a",
+          outlineWidth: 8,
+          outlineOpacity: 0.72,
         });
       }
 
       if (!preserveCameraOnRouteUpdates) {
-        fitToCoordinates(map.current, safeRouteCoordinates, 60, 16);
+        fitToCoordinates(map.current, safeRouteCoordinates, 60, 16, isProgrammaticCameraMoveRef);
       }
     };
 
     if (map.current.isStyleLoaded()) drawRoute();
     else map.current.once("load", drawRoute);
-  }, [preserveCameraOnRouteUpdates, safeRouteCoordinates, safeTrackSamples]);
+  }, [preserveCameraOnRouteUpdates, safeRouteCoordinates, safeTrackSamples, showSpeedLegend]);
 
   // Draw segment route on map
   useEffect(() => {
@@ -444,7 +476,7 @@ export function MapContainer({
 
     const shouldAutoFocusSegment =
       focusOnSegment &&
-      !safeCurrentPosition &&
+      !visualCurrentPosition &&
       safeRouteCoordinates.length === 0;
 
     const drawSegment = () => {
@@ -485,7 +517,7 @@ export function MapContainer({
       }
 
       if (
-        safeCurrentPosition &&
+        visualCurrentPosition &&
         effectiveSegmentRelation &&
         effectiveSegmentRelation.distanceM <= 200 &&
         effectiveSegmentRelation.distanceM >= 5
@@ -494,7 +526,7 @@ export function MapContainer({
           map: map.current,
           sourceId: "segment-connector",
           layerId: "segment-connector-layer",
-          coordinates: [safeCurrentPosition, effectiveSegmentRelation.projectedPoint],
+          coordinates: [visualCurrentPosition, effectiveSegmentRelation.projectedPoint],
           color: "#475569",
           width: 1.6,
           outlineColor: "#ffffff",
@@ -508,20 +540,20 @@ export function MapContainer({
       }
 
       if (shouldAutoFocusSegment) {
-        fitToCoordinates(map.current, safeSegmentCoordinates, 50, 15);
+        fitToCoordinates(map.current, safeSegmentCoordinates, 50, 15, isProgrammaticCameraMoveRef);
       }
     };
 
     if (map.current.isStyleLoaded()) drawSegment();
     else map.current.once("load", drawSegment);
   }, [
-    safeCurrentPosition,
     focusOnSegment,
     safeRouteCoordinates.length,
     safeSegmentCoordinates,
     segmentProgressCoordinates,
     effectiveSegmentRelation,
     segmentLiveSnapshot?.status,
+    visualCurrentPosition,
   ]);
 
   // Add markers for segment start and end points
@@ -560,6 +592,44 @@ export function MapContainer({
     };
   }, [safeSegmentCoordinates, focusOnSegment]);
 
+  // Add static ride start/end markers without interfering with live recording markers.
+  useEffect(() => {
+    if (!map.current) return;
+
+    routeMarkersRef.current.forEach((marker) => marker.remove());
+    routeMarkersRef.current = [];
+
+    if (safeCurrentPosition || safeRouteCoordinates.length < 2) return;
+
+    const mapInstance = map.current;
+    const addMarkers = () => {
+      if (!map.current || map.current !== mapInstance) return;
+
+      const startCoord = safeRouteCoordinates[0];
+      const startMarker = new mapboxgl.Marker({ element: createRouteMarkerElement("Inicio", "start") })
+        .setLngLat(startCoord)
+        .setPopup(new mapboxgl.Popup({ offset: 20 }).setHTML('<div class="text-sm font-medium text-slate-900">Inicio de rodada</div>'))
+        .addTo(mapInstance);
+
+      const endCoord = safeRouteCoordinates[safeRouteCoordinates.length - 1];
+      const endMarker = new mapboxgl.Marker({ element: createRouteMarkerElement("Fin", "end") })
+        .setLngLat(endCoord)
+        .setPopup(new mapboxgl.Popup({ offset: 20 }).setHTML('<div class="text-sm font-medium text-slate-900">Fin de rodada</div>'))
+        .addTo(mapInstance);
+
+      routeMarkersRef.current = [startMarker, endMarker];
+    };
+
+    if (mapInstance.isStyleLoaded()) addMarkers();
+    else mapInstance.once("load", addMarkers);
+
+    return () => {
+      mapInstance.off("load", addMarkers);
+      routeMarkersRef.current.forEach((marker) => marker.remove());
+      routeMarkersRef.current = [];
+    };
+  }, [safeCurrentPosition, safeRouteCoordinates]);
+
   // Recenter map to user location when trigger changes
   // Only if no segment is selected (segment takes priority)
   useEffect(() => {
@@ -568,7 +638,7 @@ export function MapContainer({
     const shouldBlockBySegment =
       safeSegmentCoordinates.length > 0 &&
       focusOnSegment &&
-      !safeCurrentPosition &&
+      !visualCurrentPosition &&
       safeRouteCoordinates.length === 0;
 
     if (shouldBlockBySegment) {
@@ -576,13 +646,13 @@ export function MapContainer({
     }
 
     async function recenter() {
-      const location = await getUserLocationFn.current();
+      const location = visualCurrentPosition ?? await getUserLocationFn.current();
       if (map.current) {
-        map.current.flyTo({
+        runProgrammaticCameraMove(isProgrammaticCameraMoveRef, () => map.current?.flyTo({
           center: location,
           zoom: MAP_DEFAULTS.zoomStreet,
           duration: MAP_DEFAULTS.flyDuration,
-        });
+        }));
       }
     }
 
@@ -591,12 +661,12 @@ export function MapContainer({
     } else {
       map.current?.once("load", recenter);
     }
-  }, [safeCurrentPosition, focusOnSegment, recenterTrigger, safeRouteCoordinates.length, safeSegmentCoordinates]);
+  }, [focusOnSegment, recenterTrigger, safeRouteCoordinates.length, safeSegmentCoordinates, visualCurrentPosition]);
 
   useEffect(() => {
     if (!map.current) return;
 
-    if (!safeCurrentPosition) {
+    if (!visualCurrentPosition) {
       currentPositionMarker.current?.remove();
       currentPositionMarker.current = null;
       return;
@@ -607,16 +677,15 @@ export function MapContainer({
       if (!map.current || map.current !== mapInstance) return;
 
       if (!currentPositionMarker.current) {
-        const el = document.createElement("div");
-        el.className = "h-4 w-4 rounded-full border-2 border-white bg-brand-600 shadow-lg";
-        el.style.transition = "transform 320ms linear";
+        const el = createCurrentPositionMarkerElement(currentPositionBearing);
         currentPositionMarker.current = new mapboxgl.Marker({ element: el })
-          .setLngLat(safeCurrentPosition)
+          .setLngLat(visualCurrentPosition)
           .addTo(mapInstance);
         return;
       }
 
-      currentPositionMarker.current.setLngLat(safeCurrentPosition);
+      currentPositionMarker.current.setLngLat(visualCurrentPosition);
+      updateCurrentPositionMarkerBearing(currentPositionMarker.current.getElement(), currentPositionBearing);
     };
 
     if (mapInstance.isStyleLoaded()) {
@@ -627,10 +696,10 @@ export function MapContainer({
         mapInstance.off("load", upsertCurrentPositionMarker);
       };
     }
-  }, [safeCurrentPosition]);
+  }, [currentPositionBearing, visualCurrentPosition]);
 
   useEffect(() => {
-    if (!map.current || !followCurrentPosition || !safeCurrentPosition) return;
+    if (!map.current || !followCurrentPosition || !visualCurrentPosition) return;
 
     const mapInstance = map.current;
     const followToCurrentPosition = () => {
@@ -640,17 +709,19 @@ export function MapContainer({
       const shouldThrottle = now - lastFollowAtRef.current < 1_500;
       const center = map.current.getCenter();
       const centerDistanceM = center.distanceTo(
-        new mapboxgl.LngLat(safeCurrentPosition[0], safeCurrentPosition[1])
+        new mapboxgl.LngLat(visualCurrentPosition[0], visualCurrentPosition[1])
       );
       if (shouldThrottle && centerDistanceM < 35) return;
 
       lastFollowAtRef.current = now;
-      map.current.easeTo({
-        center: safeCurrentPosition,
+      const currentZoom = map.current.getZoom();
+      const shouldAdjustZoom = currentZoom < 15.5 || centerDistanceM > 140;
+      runProgrammaticCameraMove(isProgrammaticCameraMoveRef, () => map.current?.easeTo({
+        center: visualCurrentPosition,
         duration: 850,
         essential: true,
-        zoom: Math.max(14, map.current.getZoom())
-      });
+        ...(shouldAdjustZoom ? { zoom: Math.max(16.5, currentZoom) } : {})
+      }));
     };
 
     if (mapInstance.isStyleLoaded()) {
@@ -661,20 +732,27 @@ export function MapContainer({
         mapInstance.off("load", followToCurrentPosition);
       };
     }
-  }, [safeCurrentPosition, followCurrentPosition]);
+  }, [followCurrentPosition, visualCurrentPosition]);
 
   useEffect(() => {
     if (!map.current || !followCurrentPosition || !onFollowInterrupted) return;
 
     const handleUserGesture = () => onFollowInterrupted();
+    const handleUserZoom = (event: mapboxgl.MapboxEvent & { originalEvent?: Event }) => {
+      if (event.originalEvent && !isProgrammaticCameraMoveRef.current) {
+        onFollowInterrupted();
+      }
+    };
     map.current.on("dragstart", handleUserGesture);
     map.current.on("rotatestart", handleUserGesture);
     map.current.on("pitchstart", handleUserGesture);
+    map.current.on("zoomstart", handleUserZoom);
 
     return () => {
       map.current?.off("dragstart", handleUserGesture);
       map.current?.off("rotatestart", handleUserGesture);
       map.current?.off("pitchstart", handleUserGesture);
+      map.current?.off("zoomstart", handleUserZoom);
     };
   }, [followCurrentPosition, onFollowInterrupted]);
 
@@ -748,6 +826,7 @@ function upsertLineLayer(params: {
   width: number;
   outlineColor: string;
   outlineWidth: number;
+  outlineOpacity?: number;
   dashArray?: number[];
   lineOpacity?: number;
 }) {
@@ -760,6 +839,7 @@ function upsertLineLayer(params: {
     width,
     outlineColor,
     outlineWidth,
+    outlineOpacity = 0.5,
     dashArray,
     lineOpacity = 0.9,
   } = params;
@@ -772,6 +852,16 @@ function upsertLineLayer(params: {
 
   if (map.getSource(sourceId)) {
     (map.getSource(sourceId) as mapboxgl.GeoJSONSource).setData(data);
+    if (map.getLayer(`${layerId}-outline`)) {
+      map.setPaintProperty(`${layerId}-outline`, "line-color", outlineColor);
+      map.setPaintProperty(`${layerId}-outline`, "line-width", outlineWidth);
+      map.setPaintProperty(`${layerId}-outline`, "line-opacity", outlineOpacity);
+    }
+    if (map.getLayer(layerId)) {
+      map.setPaintProperty(layerId, "line-color", color);
+      map.setPaintProperty(layerId, "line-width", width);
+      map.setPaintProperty(layerId, "line-opacity", lineOpacity);
+    }
     return;
   }
 
@@ -782,7 +872,7 @@ function upsertLineLayer(params: {
     type: "line",
     source: sourceId,
     layout: { "line-join": "round", "line-cap": "round" },
-    paint: { "line-color": outlineColor, "line-width": outlineWidth, "line-opacity": 0.5 }
+    paint: { "line-color": outlineColor, "line-width": outlineWidth, "line-opacity": outlineOpacity }
   });
 
   map.addLayer({
@@ -821,9 +911,9 @@ function upsertSegmentSpeedLayer(
     source: sourceId,
     layout: { "line-join": "round", "line-cap": "round" },
     paint: {
-      "line-color": "#ffffff",
-      "line-width": 6.5,
-      "line-opacity": 0.55,
+      "line-color": "#0f172a",
+      "line-width": 8,
+      "line-opacity": 0.68,
     },
   });
 
@@ -844,7 +934,7 @@ function upsertSegmentSpeedLayer(
         "#f97316",
         ROUTE_COLORS.live,
       ],
-      "line-width": 4,
+      "line-width": 4.5,
       "line-opacity": 0.92,
     },
   });
@@ -881,6 +971,146 @@ function createSegmentMarkerElement(label: "Inicio" | "Meta", type: "start" | "e
   container.appendChild(dot);
 
   return container;
+}
+
+function createRouteMarkerElement(label: "Inicio" | "Fin", type: "start" | "end") {
+  const container = document.createElement("div");
+  container.className = "pointer-events-none flex items-center gap-1.5";
+
+  const dot = document.createElement("span");
+  dot.className = "inline-block h-4 w-4 rounded-full border-2 border-white shadow";
+  dot.style.backgroundColor = type === "start" ? "#2563eb" : "#dc2626";
+
+  const badge = document.createElement("span");
+  badge.className =
+    "rounded-md border border-slate-200 bg-white/95 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm";
+  badge.textContent = label;
+
+  if (type === "start") {
+    container.appendChild(badge);
+    container.appendChild(dot);
+  } else {
+    container.appendChild(dot);
+    container.appendChild(badge);
+  }
+
+  return container;
+}
+
+function createCurrentPositionMarkerElement(bearing: number | null) {
+  const container = document.createElement("div");
+  container.className = "relative flex h-9 w-9 items-center justify-center";
+  container.style.filter = "drop-shadow(0 10px 18px rgba(13,148,136,0.38))";
+
+  const glow = document.createElement("span");
+  glow.className = "absolute h-9 w-9 rounded-full bg-teal-400/25";
+  glow.style.boxShadow = "0 0 22px rgba(20,184,166,0.55)";
+
+  const marker = document.createElement("span");
+  marker.dataset.currentPositionBearing = "true";
+  marker.className = "relative flex h-6 w-6 items-center justify-center rounded-full border-[3px] border-white bg-teal-600 shadow-[0_4px_14px_rgba(15,23,42,0.28)]";
+  marker.style.transition = "transform 260ms ease-out";
+
+  const arrow = document.createElement("span");
+  arrow.className = "block h-0 w-0 border-x-[5px] border-b-[11px] border-x-transparent border-b-white";
+  arrow.style.transform = "translateY(-1px)";
+
+  marker.appendChild(arrow);
+  container.appendChild(glow);
+  container.appendChild(marker);
+  updateCurrentPositionMarkerBearing(container, bearing);
+
+  return container;
+}
+
+function updateCurrentPositionMarkerBearing(element: HTMLElement, bearing: number | null) {
+  const marker = element.querySelector<HTMLElement>("[data-current-position-bearing]");
+  if (!marker) return;
+
+  marker.style.transform = typeof bearing === "number" ? `rotate(${bearing}deg)` : "rotate(0deg)";
+}
+
+function coordinateKey(coordinate: [number, number]): string {
+  return `${coordinate[0].toFixed(7)},${coordinate[1].toFixed(7)}`;
+}
+
+function resolveCurrentPositionBearing(
+  trackSamples: TrackSpeedSample[],
+  routeCoordinates: [number, number][],
+  visualPosition: [number, number] | null
+): number | null {
+  const lastHeading = [...trackSamples]
+    .reverse()
+    .map((sample) => (sample as TrackSpeedSample & { headingDegrees?: unknown; heading?: unknown }).headingDegrees ??
+      (sample as TrackSpeedSample & { heading?: unknown }).heading)
+    .find((heading): heading is number => typeof heading === "number" && Number.isFinite(heading) && heading >= 0 && heading <= 360);
+
+  if (typeof lastHeading === "number") {
+    return lastHeading;
+  }
+
+  const coordinatesForBearing = visualPosition
+    ? appendVisualPositionForBearing(routeCoordinates, visualPosition)
+    : routeCoordinates;
+
+  return resolveBearingFromCoordinates(coordinatesForBearing);
+}
+
+function appendVisualPositionForBearing(
+  routeCoordinates: [number, number][],
+  visualPosition: [number, number]
+): [number, number][] {
+  const lastRouteCoordinate = routeCoordinates.at(-1);
+  if (lastRouteCoordinate && coordinateKey(lastRouteCoordinate) === coordinateKey(visualPosition)) {
+    return routeCoordinates;
+  }
+
+  return [...routeCoordinates, visualPosition];
+}
+
+function resolveBearingFromCoordinates(coordinates: [number, number][]): number | null {
+  if (coordinates.length < 2) return null;
+
+  const to = coordinates[coordinates.length - 1];
+  const minDistanceM = 2;
+
+  for (let index = coordinates.length - 2; index >= 0; index -= 1) {
+    const from = coordinates[index];
+    const distanceM = new mapboxgl.LngLat(from[0], from[1]).distanceTo(new mapboxgl.LngLat(to[0], to[1]));
+    if (distanceM >= minDistanceM && distanceM <= 250) {
+      return calculateBearingDegrees(from, to);
+    }
+  }
+
+  return null;
+}
+
+function calculateBearingDegrees(from: [number, number], to: [number, number]): number {
+  const fromLat = degreesToRadians(from[1]);
+  const toLat = degreesToRadians(to[1]);
+  const deltaLng = degreesToRadians(to[0] - from[0]);
+  const y = Math.sin(deltaLng) * Math.cos(toLat);
+  const x = Math.cos(fromLat) * Math.sin(toLat) - Math.sin(fromLat) * Math.cos(toLat) * Math.cos(deltaLng);
+  return (radiansToDegrees(Math.atan2(y, x)) + 360) % 360;
+}
+
+function degreesToRadians(value: number): number {
+  return value * Math.PI / 180;
+}
+
+function radiansToDegrees(value: number): number {
+  return value * 180 / Math.PI;
+}
+
+function runProgrammaticCameraMove(
+  flagRef: MutableRefObject<boolean>,
+  move: () => void
+) {
+  flagRef.current = true;
+  move();
+  window.setTimeout(() => {
+    flagRef.current = false;
+  }, MAP_DEFAULTS.flyDuration + 120);
 }
 
 function resolveSegmentBaseStyle(status: SegmentLiveSnapshot["status"]): {
@@ -942,7 +1172,8 @@ function fitToCoordinates(
   map: mapboxgl.Map,
   coordinates: [number, number][],
   padding: number,
-  maxZoom: number
+  maxZoom: number,
+  programmaticMoveRef?: MutableRefObject<boolean>
 ) {
   if (coordinates.length < 2) return;
 
@@ -950,6 +1181,11 @@ function fitToCoordinates(
     (b, c) => b.extend(c),
     new mapboxgl.LngLatBounds(coordinates[0], coordinates[0])
   );
+  if (programmaticMoveRef) {
+    runProgrammaticCameraMove(programmaticMoveRef, () => map.fitBounds(bounds, { padding, maxZoom }));
+    return;
+  }
+
   map.fitBounds(bounds, { padding, maxZoom });
 }
 

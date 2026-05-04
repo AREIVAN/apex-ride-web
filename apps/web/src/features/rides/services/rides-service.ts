@@ -1,4 +1,5 @@
 import { mapRideRow } from "@/lib/mappers/domain-mappers";
+import { normalizeRideTrackPoints } from "@/features/rides/lib/normalize-ride-track-points";
 import type { Database } from "@/lib/supabase/database.types";
 import type { Ride } from "@/types/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -80,13 +81,22 @@ export function createRidesService(client: SupabaseClient<Database>): RidesServi
 
       if (error) throw new Error(`Unable to load ride points detail: ${error.message}`);
 
-      return (data ?? []).map((point) => ({
-        speedKmh: point.speed_kmh,
-        altitudeM: point.altitude_m,
-        capturedAt: point.captured_at,
-        latitude: extractLatitude(point.location),
-        longitude: extractLongitude(point.location)
-      }));
+      return (data ?? []).map((point) => {
+        const normalizedPoint = normalizeRideTrackPoints({
+          location: point.location,
+          speed_kmh: point.speed_kmh,
+          altitude_m: point.altitude_m,
+          captured_at: point.captured_at,
+        })[0];
+
+        return {
+          speedKmh: point.speed_kmh,
+          altitudeM: point.altitude_m,
+          capturedAt: point.captured_at,
+          latitude: normalizedPoint?.lat ?? null,
+          longitude: normalizedPoint?.lng ?? null,
+        };
+      });
     },
 
     async listAttemptsForRide(rideId, riderId) {
@@ -114,58 +124,4 @@ export function createRidesService(client: SupabaseClient<Database>): RidesServi
       }));
     }
   };
-}
-
-function extractLongitude(location: unknown): number | null {
-  const pair = extractCoordinatePair(location);
-  return pair ? pair[0] : null;
-}
-
-function extractLatitude(location: unknown): number | null {
-  const pair = extractCoordinatePair(location);
-  return pair ? pair[1] : null;
-}
-
-function extractCoordinatePair(location: unknown): [number, number] | null {
-  if (!location) return null;
-
-  if (typeof location === "string") {
-    const pointMatch = location.match(/POINT\((-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\)/i);
-    if (pointMatch) {
-      return [Number(pointMatch[1]), Number(pointMatch[2])];
-    }
-    return null;
-  }
-
-  if (typeof location !== "object") return null;
-
-  const maybeGeoJSON = location as {
-    coordinates?: unknown;
-    lng?: unknown;
-    lon?: unknown;
-    longitude?: unknown;
-    lat?: unknown;
-    latitude?: unknown;
-  };
-
-  if (Array.isArray(maybeGeoJSON.coordinates) && maybeGeoJSON.coordinates.length >= 2) {
-    const lng = Number(maybeGeoJSON.coordinates[0]);
-    const lat = Number(maybeGeoJSON.coordinates[1]);
-    if (Number.isFinite(lng) && Number.isFinite(lat)) {
-      return [lng, lat];
-    }
-  }
-
-  const lngCandidate = maybeGeoJSON.longitude ?? maybeGeoJSON.lng ?? maybeGeoJSON.lon;
-  const latCandidate = maybeGeoJSON.latitude ?? maybeGeoJSON.lat;
-
-  if (lngCandidate !== undefined && latCandidate !== undefined) {
-    const lng = Number(lngCandidate);
-    const lat = Number(latCandidate);
-    if (Number.isFinite(lng) && Number.isFinite(lat)) {
-      return [lng, lat];
-    }
-  }
-
-  return null;
 }

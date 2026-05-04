@@ -115,9 +115,18 @@ export function createTrackingService(client: SupabaseClient<Database>): Trackin
       const batchSize = 300;
       for (let index = 0; index < payload.length; index += batchSize) {
         const chunk = payload.slice(index, index + batchSize);
-        const { error } = await client.from("ride_points").insert(chunk);
-        if (error) {
-          throw new Error(`Unable to store ride points: ${error.message}`);
+        try {
+          const { error } = await client.from("ride_points").insert(chunk);
+          if (error) {
+            throw new Error(`Unable to store ride points: ${error.message}`);
+          }
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith("Unable to store ride points:")) {
+            throw error;
+          }
+
+          const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+          throw new Error(`Unable to store ride points: ${message}`);
         }
       }
     },

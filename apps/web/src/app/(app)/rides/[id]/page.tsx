@@ -6,6 +6,8 @@ import { Button } from "@/features/shared/ui/button";
 import { Card } from "@/features/shared/ui/card";
 import { MapContainer } from "@/features/maps/components/map-container";
 import { createRidesService } from "@/features/rides/services/rides-service";
+import { RideShareButton } from "@/features/rides/components/ride-share-button";
+import { normalizeRideTrackPoints } from "@/features/rides/lib/normalize-ride-track-points";
 import { EmptyState } from "@/features/shared/ui/empty-state";
 import { PageHeader } from "@/features/shared/ui/page-header";
 
@@ -21,9 +23,8 @@ export default async function RideDetailPage({ params }: { params: Promise<{ id:
 
   try {
     const ridesService = createRidesService(client);
-    const [ride, pointCount, points, attempts] = await Promise.all([
+    const [ride, points, attempts] = await Promise.all([
       ridesService.getById(id, user.id),
-      ridesService.getPointCount(id, user.id),
       ridesService.listPoints(id, user.id),
       ridesService.listAttemptsForRide(id, user.id)
     ]);
@@ -56,14 +57,20 @@ export default async function RideDetailPage({ params }: { params: Promise<{ id:
       { control: 0, cruise: 0, attack: 0 }
     );
     const totalBuckets = speedBuckets.control + speedBuckets.cruise + speedBuckets.attack;
-    const routeCoordinates = points
-      .map((point) => {
-        if (typeof point.longitude === "number" && typeof point.latitude === "number") {
-          return [point.longitude, point.latitude] as [number, number];
-        }
-        return null;
-      })
-      .filter((coord): coord is [number, number] => Boolean(coord));
+    const normalizedPoints = normalizeRideTrackPoints(points);
+    const routeCoordinates = normalizedPoints.map((point) => [point.lng, point.lat] as [number, number]);
+    const shareData = {
+      title: ride.title,
+      startedAt: ride.startedAt,
+      endedAt: ride.endedAt,
+      distanceKm: ride.distanceKm,
+      movingTimeSec: ride.movingTimeSec,
+      avgSpeedKmh: avgRecordedSpeed,
+      maxSpeedKmh: maxSpeed,
+      elevationGainM: ride.elevationGainM,
+      pointCount: normalizedPoints.length,
+      routeCoordinates
+    };
 
     const speedStdDeviation = points.length
       ? Math.sqrt(
@@ -92,6 +99,7 @@ export default async function RideDetailPage({ params }: { params: Promise<{ id:
           description="Vista analitica integral de la rodada con bloques de rendimiento, intentos de segmentos y timeline operativo."
           actions={
             <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+              <RideShareButton data={shareData} />
               <Link href="/rides"><Button variant="secondary">Volver al historial</Button></Link>
               <Link href="/leaderboards"><Button variant="ghost">Ver clasificaciones</Button></Link>
             </div>
@@ -116,7 +124,7 @@ export default async function RideDetailPage({ params }: { params: Promise<{ id:
             <Metric label="Elevacion" value={`${ride.elevationGainM.toFixed(0)} m`} />
           </div>
           <div className="grid gap-2 sm:grid-cols-3">
-            <QuickInsight label="Puntos GPS" value={`${pointCount}`} helper="Muestra disponible para replay" />
+            <QuickInsight label="Puntos GPS" value={`${normalizedPoints.length}`} helper="Muestra disponible para replay" />
             <QuickInsight label="Ritmo de ascenso" value={`${climbRate.toFixed(0)} m/h`} helper="Promedio sobre tiempo en movimiento" />
             <QuickInsight label="Ventana altitud" value={`${minAltitude.toFixed(0)} - ${maxAltitude.toFixed(0)} m`} helper="Rango vertical de la rodada" />
           </div>
@@ -150,8 +158,8 @@ export default async function RideDetailPage({ params }: { params: Promise<{ id:
               />
               <QuickInsight
                 label="Cobertura GPS"
-                value={routeCoordinates.length ? `${routeCoordinates.length} puntos` : "Sin traza"}
-                helper={routeCoordinates.length ? "Traza aplicada en mapa" : "Revisar permisos de ubicacion en la grabacion"}
+                value={routeCoordinates.length >= 2 ? `${routeCoordinates.length} puntos` : "Sin traza"}
+                helper={routeCoordinates.length >= 2 ? "Traza disponible en mapa" : "Revisar permisos de ubicacion en la grabacion"}
               />
             </div>
           </Card>
