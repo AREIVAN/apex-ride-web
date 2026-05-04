@@ -72,31 +72,24 @@ export function createRidesService(client: SupabaseClient<Database>): RidesServi
       const safeRideId = rideIdSchema.parse(rideId);
       const safeRiderId = riderIdSchema.parse(riderId);
 
-      const { data, error } = await client
-        .from("ride_points")
-        .select("speed_kmh,altitude_m,captured_at,location,rides!inner(id,rider_id)")
-        .eq("ride_id", safeRideId)
-        .eq("rides.rider_id", safeRiderId)
-        .order("captured_at", { ascending: true });
+      const { data, error } = await client.rpc("get_ride_points", { p_ride_id: safeRideId });
 
-      if (error) throw new Error(`Unable to load ride points detail: ${error.message}`);
-
-      return (data ?? []).map((point) => {
-        const normalizedPoint = normalizeRideTrackPoints({
-          location: point.location,
-          speed_kmh: point.speed_kmh,
-          altitude_m: point.altitude_m,
-          captured_at: point.captured_at,
-        })[0];
-
-        return {
+      if (!error) {
+        return (data ?? []).map((point) => ({
           speedKmh: point.speed_kmh,
           altitudeM: point.altitude_m,
           capturedAt: point.captured_at,
-          latitude: normalizedPoint?.lat ?? null,
-          longitude: normalizedPoint?.lng ?? null,
-        };
-      });
+          latitude: point.lat,
+          longitude: point.lng,
+        }));
+      }
+
+      if (!canFallbackToLegacyPointRead(error.message)) {
+        throw new Error(`Unable to load ride points detail via RPC: ${error.message}`);
+      }
+
+      const legacy = await listLegacyPoints(client, safeRideId, safeRiderId);
+      return legacy;
     },
 
     async listAttemptsForRide(rideId, riderId) {
@@ -124,4 +117,47 @@ export function createRidesService(client: SupabaseClient<Database>): RidesServi
       }));
     }
   };
+}
+
+function canFallbackToLegacyPointRead(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes("could not find the function public.get_ride_points");
+}
+
+async function listLegacyPoints(
+  client: SupabaseClient<Database>,
+  rideId: string,
+  riderId: string
+): Promise<Array<{
+  speedKmh: number | null;
+  altitudeM: number | null;
+  capturedAt: string;
+  latitude: number | null;
+  longitude: number | null;
+}>> {
+  const { data, error } = await client
+    .from("ride_points")
+    .select("speed_kmh,altitude_m,captured_at,location,rides!inner(id,rider_id)")
+    .eq("ride_id", rideId)
+    .eq("rides.rider_id", riderId)
+    .order("captured_at", { ascending: true });
+
+  if (error) throw new Error(`Unable to load legacy ride points detail: ${error.message}`);
+
+  return (data ?? []).map((point) => {
+    const normalizedPoint = normalizeRideTrackPoints({
+      location: point.location,
+      speed_kmh: point.speed_kmh,
+      altitude_m: point.altitude_m,
+      captured_at: point.captured_at,
+    })[0];
+
+    return {
+      speedKmh: point.speed_kmh,
+      altitudeM: point.altitude_m,
+      capturedAt: point.captured_at,
+      latitude: normalizedPoint?.lat ?? null,
+      longitude: normalizedPoint?.lng ?? null,
+    };
+  });
 }

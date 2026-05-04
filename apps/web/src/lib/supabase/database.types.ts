@@ -442,6 +442,22 @@ export interface Database {
       };
     };
     Functions: {
+      get_ride_points: {
+        Args: { p_ride_id: string };
+        Returns: {
+          id: number;
+          ride_id: string;
+          lat: number;
+          lng: number;
+          speed_kmh: number | null;
+          altitude_m: number | null;
+          captured_at: string;
+        }[];
+      };
+      insert_ride_points: {
+        Args: { p_ride_id: string; p_points: Json };
+        Returns: number;
+      };
       get_segment_leaderboard: {
         Args: { p_segment_id: string; p_limit?: number };
         Returns: {

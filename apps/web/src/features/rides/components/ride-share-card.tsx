@@ -35,7 +35,7 @@ export function RideShareCard({ data }: RideShareCardProps) {
           <p className="text-sm font-semibold text-slate-300 sm:text-base">{formatRideDateTime(data.startedAt)}</p>
         </section>
 
-        <RideRouteStaticMap coordinates={data.routeCoordinates} />
+        <RideRouteStaticMap coordinates={data.routeCoordinates} routePoints={data.routePoints} />
 
         <section className="grid flex-1 grid-cols-2 gap-2.5 sm:gap-3">
           {metrics.map((metric) => (

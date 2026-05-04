@@ -1,5 +1,7 @@
 import type { Feature, FeatureCollection, LineString } from "geojson";
 
+import { buildSpeedColoredSegments, type SpeedBucket } from "@/features/rides/lib/speed-colored-segments";
+
 const EARTH_RADIUS_M = 6_371_000;
 
 export type TrackSpeedSample = {
@@ -7,8 +9,6 @@ export type TrackSpeedSample = {
   lat: number;
   speedKmh: number | null;
 };
-
-export type SpeedBucket = "low" | "medium" | "high";
 
 export type SegmentRelation = {
   distanceM: number;
@@ -19,35 +19,22 @@ export type SegmentRelation = {
 
 export function buildSpeedSegmentFeatureCollection(samples: TrackSpeedSample[]): FeatureCollection<
   LineString,
-  { speedKmh: number; speedBucket: SpeedBucket }
+  { speedKmh: number | null; speedBucket: SpeedBucket }
 > {
-  const features: Feature<LineString, { speedKmh: number; speedBucket: SpeedBucket }>[] = [];
-
-  for (let index = 0; index < samples.length - 1; index += 1) {
-    const from = samples[index];
-    const to = samples[index + 1];
-
-    if (!Number.isFinite(from.lng) || !Number.isFinite(from.lat)) continue;
-    if (!Number.isFinite(to.lng) || !Number.isFinite(to.lat)) continue;
-
-    const speedKmh = resolveSegmentSpeed(from.speedKmh, to.speedKmh);
-    if (speedKmh === null) continue;
-
-    features.push({
-      type: "Feature",
-      properties: {
-        speedKmh,
-        speedBucket: classifySpeedBucket(speedKmh),
-      },
-      geometry: {
-        type: "LineString",
-        coordinates: [
-          [from.lng, from.lat],
-          [to.lng, to.lat],
-        ],
-      },
-    });
-  }
+  const features: Feature<LineString, { speedKmh: number | null; speedBucket: SpeedBucket }>[] = buildSpeedColoredSegments(samples).map((segment) => ({
+    type: "Feature",
+    properties: {
+      speedKmh: segment.speedKmh,
+      speedBucket: segment.bucket,
+    },
+    geometry: {
+      type: "LineString",
+      coordinates: [
+        [segment.from.lng, segment.from.lat],
+        [segment.to.lng, segment.to.lat],
+      ],
+    },
+  }));
 
   return {
     type: "FeatureCollection",
@@ -114,25 +101,6 @@ export function buildSegmentProgressCoordinates(
   }
 
   return progressCoordinates;
-}
-
-function classifySpeedBucket(speedKmh: number): SpeedBucket {
-  if (speedKmh < 15) return "low";
-  if (speedKmh < 30) return "medium";
-  return "high";
-}
-
-function resolveSegmentSpeed(from: number | null, to: number | null): number | null {
-  const hasFrom = typeof from === "number" && Number.isFinite(from) && from >= 0;
-  const hasTo = typeof to === "number" && Number.isFinite(to) && to >= 0;
-
-  if (hasFrom && hasTo) {
-    return clamp(((from as number) + (to as number)) / 2, 0, 90);
-  }
-
-  if (hasTo) return clamp(to as number, 0, 90);
-  if (hasFrom) return clamp(from as number, 0, 90);
-  return null;
 }
 
 function projectPointToSegment(

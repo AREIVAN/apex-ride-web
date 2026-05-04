@@ -64,20 +64,24 @@ export function getMapboxToken(): string {
   const rawToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
   if (!rawToken) {
-    console.warn(
-      "[Mapbox] WARNING: NEXT_PUBLIC_MAPBOX_TOKEN not configured. " +
-      "Mapbox features will not work. " +
-      "Set NEXT_PUBLIC_MAPBOX_TOKEN in your .env.local file."
-    );
+    if (process.env.NODE_ENV === "development") {
+      console.warn(
+        "[Mapbox] WARNING: NEXT_PUBLIC_MAPBOX_TOKEN not configured. " +
+        "Static Mapbox exports will use the vector fallback. " +
+        "Set NEXT_PUBLIC_MAPBOX_TOKEN in your .env.local file."
+      );
+    }
     return "";
   }
 
   const token = rawToken.trim();
   if (!isValidPublicMapboxToken(token)) {
-    console.warn(
-      "[Mapbox] WARNING: Invalid NEXT_PUBLIC_MAPBOX_TOKEN detected. " +
-      "Expected a valid public token starting with 'pk.'. Falling back to OSM style."
-    );
+    if (process.env.NODE_ENV === "development") {
+      console.warn(
+        "[Mapbox] WARNING: Invalid NEXT_PUBLIC_MAPBOX_TOKEN detected. " +
+        "Expected a valid public token starting with 'pk.'. Falling back to OSM/vector maps."
+      );
+    }
     return "";
   }
 

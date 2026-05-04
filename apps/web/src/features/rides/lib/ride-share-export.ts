@@ -1,6 +1,8 @@
 import { buildStaticMapUrl } from "@/features/rides/lib/ride-share-static-map";
+import { buildSpeedColoredSegments, type SpeedSegmentPoint } from "@/features/rides/lib/speed-colored-segments";
 
 export type RideRouteCoordinate = [number, number];
+export type RideRoutePoint = SpeedSegmentPoint;
 
 export interface RideShareData {
   title: string;
@@ -13,6 +15,7 @@ export interface RideShareData {
   elevationGainM: number;
   pointCount: number;
   routeCoordinates: RideRouteCoordinate[];
+  routePoints?: RideRoutePoint[];
 }
 
 interface ProjectedPoint {
@@ -109,7 +112,7 @@ function drawShareCard(ctx: CanvasRenderingContext2D, data: RideShareData, stati
   drawBackground(ctx);
   drawBrand(ctx);
   drawTitle(ctx, data);
-  drawRoutePanel(ctx, data.routeCoordinates, staticMapImage);
+  drawRoutePanel(ctx, data, staticMapImage);
   drawMetricGrid(ctx, data);
   drawFooter(ctx);
 }
@@ -181,11 +184,13 @@ function drawTitle(ctx: CanvasRenderingContext2D, data: RideShareData): void {
   ctx.fillText(formatRideDateTime(data.startedAt), 72, 386);
 }
 
-function drawRoutePanel(ctx: CanvasRenderingContext2D, coordinates: RideRouteCoordinate[], staticMapImage: HTMLImageElement | null): void {
+function drawRoutePanel(ctx: CanvasRenderingContext2D, data: RideShareData, staticMapImage: HTMLImageElement | null): void {
   const x = 72;
   const y = 434;
   const width = 936;
   const height = 410;
+  const routePoints = resolveRoutePoints(data);
+  const coordinates = routePoints.map((point) => [point.lng, point.lat] as RideRouteCoordinate);
 
   ctx.fillStyle = "rgba(15,23,42,0.82)";
   roundRect(ctx, x, y, width, height, 42);
@@ -200,11 +205,11 @@ function drawRoutePanel(ctx: CanvasRenderingContext2D, coordinates: RideRouteCoo
 
   if (staticMapImage) {
     drawImageCover(ctx, staticMapImage, x, y, width, height);
-    ctx.restore();
-    return;
+    ctx.fillStyle = "rgba(2,6,23,0.22)";
+    ctx.fillRect(x, y, width, height);
+  } else {
+    drawMapGrid(ctx, x, y, width, height);
   }
-
-  drawMapGrid(ctx, x, y, width, height);
 
   if (coordinates.length < 2) {
     ctx.fillStyle = "rgba(148,163,184,0.16)";
@@ -222,14 +227,20 @@ function drawRoutePanel(ctx: CanvasRenderingContext2D, coordinates: RideRouteCoo
   }
 
   const projected = projectCoordinates(coordinates, x + 70, y + 54, width - 140, height - 108);
-  drawProjectedRoute(ctx, projected);
+  drawProjectedRoute(ctx, routePoints, projected);
   drawEndpoint(ctx, projected[0], "#34d399", "INICIO");
   drawEndpoint(ctx, projected[projected.length - 1], "#fb7185", "FIN");
   ctx.restore();
 }
 
 async function loadRideStaticMapImage(coordinates: RideRouteCoordinate[]): Promise<HTMLImageElement | null> {
-  const url = buildStaticMapUrl(coordinates, { width: 936, height: 410, padding: 44 });
+  const url = buildStaticMapUrl(coordinates, {
+    width: 936,
+    height: 410,
+    padding: 44,
+    routeWidth: 1,
+    routeOpacity: 0.01,
+  });
   if (!url) return null;
 
   return new Promise((resolve) => {
@@ -274,6 +285,11 @@ function drawImageCover(ctx: CanvasRenderingContext2D, image: HTMLImageElement, 
   const sourceY = (image.naturalHeight - sourceHeight) / 2;
 
   ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, width, height);
+}
+
+function resolveRoutePoints(data: RideShareData): RideRoutePoint[] {
+  if (data.routePoints?.length) return data.routePoints;
+  return data.routeCoordinates.map(([lng, lat]) => ({ lng, lat, speedKmh: null }));
 }
 
 function drawMetricGrid(ctx: CanvasRenderingContext2D, data: RideShareData): void {
@@ -345,35 +361,37 @@ function drawMapGrid(ctx: CanvasRenderingContext2D, x: number, y: number, width:
   }
 }
 
-function drawProjectedRoute(ctx: CanvasRenderingContext2D, points: ProjectedPoint[]): void {
+function drawProjectedRoute(ctx: CanvasRenderingContext2D, routePoints: RideRoutePoint[], projected: ProjectedPoint[]): void {
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
 
-  ctx.beginPath();
-  points.forEach((point, index) => {
-    if (index === 0) ctx.moveTo(point.x, point.y);
-    else ctx.lineTo(point.x, point.y);
-  });
-  ctx.strokeStyle = "rgba(6,182,212,0.34)";
-  ctx.lineWidth = 26;
-  ctx.stroke();
+  drawProjectedPolyline(ctx, projected, "rgba(15,23,42,0.76)", 24);
 
-  ctx.beginPath();
-  points.forEach((point, index) => {
-    if (index === 0) ctx.moveTo(point.x, point.y);
-    else ctx.lineTo(point.x, point.y);
-  });
-  ctx.strokeStyle = "#5eead4";
-  ctx.lineWidth = 12;
-  ctx.stroke();
+  const segments = buildSpeedColoredSegments(routePoints);
+  segments.forEach((segment, index) => {
+    const from = projected[index];
+    const to = projected[index + 1];
+    if (!from || !to) return;
 
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.strokeStyle = segment.color;
+    ctx.lineWidth = 12;
+    ctx.stroke();
+  });
+
+  drawProjectedPolyline(ctx, projected, "rgba(248,250,252,0.9)", 3);
+}
+
+function drawProjectedPolyline(ctx: CanvasRenderingContext2D, points: ProjectedPoint[], color: string, width: number): void {
   ctx.beginPath();
   points.forEach((point, index) => {
     if (index === 0) ctx.moveTo(point.x, point.y);
     else ctx.lineTo(point.x, point.y);
   });
-  ctx.strokeStyle = "#f8fafc";
-  ctx.lineWidth = 3;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
   ctx.stroke();
 }
 

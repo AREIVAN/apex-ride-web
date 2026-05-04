@@ -59,6 +59,11 @@ export default async function RideDetailPage({ params }: { params: Promise<{ id:
     const totalBuckets = speedBuckets.control + speedBuckets.cruise + speedBuckets.attack;
     const normalizedPoints = normalizeRideTrackPoints(points);
     const routeCoordinates = normalizedPoints.map((point) => [point.lng, point.lat] as [number, number]);
+    const routePoints = normalizedPoints.map((point) => ({
+      lng: point.lng,
+      lat: point.lat,
+      speedKmh: typeof point.speed === "number" ? point.speed : null,
+    }));
     const shareData = {
       title: ride.title,
       startedAt: ride.startedAt,
@@ -69,7 +74,8 @@ export default async function RideDetailPage({ params }: { params: Promise<{ id:
       maxSpeedKmh: maxSpeed,
       elevationGainM: ride.elevationGainM,
       pointCount: normalizedPoints.length,
-      routeCoordinates
+      routeCoordinates,
+      routePoints
     };
 
     const speedStdDeviation = points.length
@@ -135,15 +141,16 @@ export default async function RideDetailPage({ params }: { params: Promise<{ id:
             title="Traza de la rodada"
             useUserLocation={routeCoordinates.length === 0}
             routeCoordinates={routeCoordinates}
+            trackSamples={routePoints}
           />
 
           <Card className="space-y-3 p-4 sm:p-5">
             <h3 className="text-base font-semibold text-slate-900">Bloques analiticos</h3>
             <p className="text-sm text-slate-600">Distribucion de esfuerzo por muestras de velocidad para lectura rapida de la sesion.</p>
             <div className="space-y-2">
-              <SpeedBar label="Control (<30 km/h)" count={speedBuckets.control} total={totalBuckets} tone="bg-slate-700" />
-              <SpeedBar label="Cruise (30-55 km/h)" count={speedBuckets.cruise} total={totalBuckets} tone="bg-brand-700" />
-              <SpeedBar label="Ataque (>55 km/h)" count={speedBuckets.attack} total={totalBuckets} tone="bg-emerald-600" />
+              <SpeedBar label="Control (<30 km/h)" count={speedBuckets.control} total={totalBuckets} tone="bg-sky-500" />
+              <SpeedBar label="Cruise (30-55 km/h)" count={speedBuckets.cruise} total={totalBuckets} tone="bg-teal-500" />
+              <SpeedBar label="Ataque (>55 km/h)" count={speedBuckets.attack} total={totalBuckets} tone="bg-orange-500" />
             </div>
             <div className="grid gap-2 pt-1 sm:grid-cols-3">
               <QuickInsight

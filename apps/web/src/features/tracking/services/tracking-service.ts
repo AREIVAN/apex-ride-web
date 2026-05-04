@@ -105,28 +105,40 @@ export function createTrackingService(client: SupabaseClient<Database>): Trackin
       }
 
       const payload = points.map((point) => ({
-        ride_id: safeRideId,
-        location: `SRID=4326;POINT(${point.lng} ${point.lat})`,
-        altitude_m: point.altitudeM ?? null,
-        speed_kmh: point.speedMs !== null && typeof point.speedMs !== "undefined" ? point.speedMs * 3.6 : null,
-        captured_at: new Date(point.timestamp).toISOString()
+        lat: point.lat,
+        lng: point.lng,
+        altitudeM: point.altitudeM ?? null,
+        speedKmh: point.speedMs !== null && typeof point.speedMs !== "undefined" ? point.speedMs * 3.6 : null,
+        capturedAt: new Date(point.timestamp).toISOString()
       }));
 
       const batchSize = 300;
       for (let index = 0; index < payload.length; index += batchSize) {
         const chunk = payload.slice(index, index + batchSize);
         try {
-          const { error } = await client.from("ride_points").insert(chunk);
+          const { data: insertedCount, error } = await client.rpc("insert_ride_points", {
+            p_ride_id: safeRideId,
+            p_points: chunk as Json
+          });
+
           if (error) {
-            throw new Error(`Unable to store ride points: ${error.message}`);
+            throw new Error(`Unable to store ride points via RPC: ${error.message}`);
+          }
+
+          if (typeof insertedCount === "number" && insertedCount < chunk.length) {
+            console.warn("[Tracking] Some ride points were ignored by validation", {
+              rideId: safeRideId,
+              requested: chunk.length,
+              inserted: insertedCount,
+            });
           }
         } catch (error) {
-          if (error instanceof Error && error.message.startsWith("Unable to store ride points:")) {
+          if (error instanceof Error && error.message.startsWith("Unable to store ride points")) {
             throw error;
           }
 
           const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-          throw new Error(`Unable to store ride points: ${message}`);
+          throw new Error(`Unable to store ride points via RPC. Local points were not deleted; retry sync when connectivity returns. Detail: ${message}`);
         }
       }
     },

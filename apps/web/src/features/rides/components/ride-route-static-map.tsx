@@ -2,20 +2,28 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import type { RideRouteCoordinate } from "@/features/rides/lib/ride-share-export";
+import type { RideRouteCoordinate, RideRoutePoint } from "@/features/rides/lib/ride-share-export";
 import { buildStaticMapUrl } from "@/features/rides/lib/ride-share-static-map";
+import { buildSpeedColoredSegments } from "@/features/rides/lib/speed-colored-segments";
 
 interface RideRouteStaticMapProps {
   coordinates: RideRouteCoordinate[];
+  routePoints?: RideRoutePoint[];
 }
 
-export function RideRouteStaticMap({ coordinates }: RideRouteStaticMapProps) {
-  const staticMapUrl = useMemo(() => buildStaticMapUrl(coordinates), [coordinates]);
+export function RideRouteStaticMap({ coordinates, routePoints }: RideRouteStaticMapProps) {
+  const staticMapUrl = useMemo(() => buildStaticMapUrl(coordinates, { routeWidth: 1, routeOpacity: 0.01 }), [coordinates]);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [hasMapError, setHasMapError] = useState(false);
-  const path = coordinates.length >= 2 ? buildSvgPath(coordinates) : null;
-  const start = coordinates.length >= 2 ? projectCoordinates(coordinates)[0] : null;
-  const end = coordinates.length >= 2 ? projectCoordinates(coordinates)[coordinates.length - 1] : null;
+  const resolvedRoutePoints = useMemo(
+    () => routePoints?.length ? routePoints : coordinates.map(([lng, lat]) => ({ lng, lat, speedKmh: null })),
+    [coordinates, routePoints]
+  );
+  const projected = coordinates.length >= 2 ? projectCoordinates(coordinates) : [];
+  const path = projected.length >= 2 ? buildSvgPath(projected) : null;
+  const speedSegments = projected.length >= 2 ? buildSvgSpeedSegments(resolvedRoutePoints, projected) : [];
+  const start = projected.length >= 2 ? projected[0] : null;
+  const end = projected.length >= 2 ? projected[projected.length - 1] : null;
 
   useEffect(() => {
     setIsMapLoaded(false);
@@ -31,8 +39,6 @@ export function RideRouteStaticMap({ coordinates }: RideRouteStaticMapProps) {
 
   return (
     <div className="relative overflow-hidden rounded-[1.75rem] border border-teal-300/25 bg-slate-950 shadow-[0_24px_80px_rgba(20,184,166,0.18)]">
-      <AbstractRouteMap path={path} start={start} end={end} />
-
       {path && staticMapUrl && !hasMapError ? (
         <img
           key={staticMapUrl}
@@ -44,21 +50,27 @@ export function RideRouteStaticMap({ coordinates }: RideRouteStaticMapProps) {
           onError={() => setHasMapError(true)}
         />
       ) : null}
+
+      <AbstractRouteMap path={path} speedSegments={speedSegments} start={start} end={end} hasStaticMap={!!staticMapUrl && !hasMapError} />
     </div>
   );
 }
 
 function AbstractRouteMap({
   path,
+  speedSegments,
   start,
-  end
+  end,
+  hasStaticMap,
 }: {
   path: string | null;
+  speedSegments: Array<{ path: string; color: string }>;
   start: { x: number; y: number } | null;
   end: { x: number; y: number } | null;
+  hasStaticMap: boolean;
 }) {
   return (
-    <svg viewBox="0 0 800 390" role="img" aria-label={path ? "Traza GPS de la rodada" : "Sin traza GPS disponible"} className="h-full min-h-[250px] w-full">
+    <svg viewBox="0 0 800 390" role="img" aria-label={path ? "Traza GPS de la rodada" : "Sin traza GPS disponible"} className="relative z-10 h-full min-h-[250px] w-full">
       <defs>
         <linearGradient id="ride-share-map-bg" x1="0" x2="1" y1="0" y2="1">
           <stop offset="0%" stopColor="#071a24" />
@@ -73,14 +85,22 @@ function AbstractRouteMap({
         </pattern>
       </defs>
 
-      <rect width="800" height="390" fill="url(#ride-share-map-bg)" />
-      <rect width="800" height="390" fill="url(#ride-share-map-glow)" />
-      <rect width="800" height="390" fill="url(#ride-share-grid)" />
+      {!hasStaticMap ? (
+        <>
+          <rect width="800" height="390" fill="url(#ride-share-map-bg)" />
+          <rect width="800" height="390" fill="url(#ride-share-map-glow)" />
+          <rect width="800" height="390" fill="url(#ride-share-grid)" />
+        </>
+      ) : (
+        <rect width="800" height="390" fill="#020617" opacity="0.2" />
+      )}
 
       {path ? (
         <>
-          <path d={path} fill="none" stroke="#0891b2" strokeOpacity="0.34" strokeWidth="26" strokeLinecap="round" strokeLinejoin="round" />
-          <path d={path} fill="none" stroke="#5eead4" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round" />
+          <path d={path} fill="none" stroke="#020617" strokeOpacity="0.62" strokeWidth="26" strokeLinecap="round" strokeLinejoin="round" />
+          {speedSegments.map((segment, index) => (
+            <path key={`${segment.path}-${index}`} d={segment.path} fill="none" stroke={segment.color} strokeWidth="12" strokeLinecap="round" strokeLinejoin="round" />
+          ))}
           <path d={path} fill="none" stroke="#f8fafc" strokeOpacity="0.92" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
           {start ? <Endpoint point={start} label="Inicio" tone="start" /> : null}
           {end ? <Endpoint point={end} label="Fin" tone="end" /> : null}
@@ -107,10 +127,19 @@ function Endpoint({ point, label, tone }: { point: { x: number; y: number }; lab
   );
 }
 
-function buildSvgPath(coordinates: RideRouteCoordinate[]): string {
-  return projectCoordinates(coordinates)
+function buildSvgPath(points: Array<{ x: number; y: number }>): string {
+  return points
     .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
     .join(" ");
+}
+
+function buildSvgSpeedSegments(routePoints: RideRoutePoint[], projected: Array<{ x: number; y: number }>): Array<{ path: string; color: string }> {
+  return buildSpeedColoredSegments(routePoints).flatMap((segment, index) => {
+    const from = projected[index];
+    const to = projected[index + 1];
+    if (!from || !to) return [];
+    return [{ path: `M ${from.x.toFixed(1)} ${from.y.toFixed(1)} L ${to.x.toFixed(1)} ${to.y.toFixed(1)}`, color: segment.color }];
+  });
 }
 
 function projectCoordinates(coordinates: RideRouteCoordinate[]): Array<{ x: number; y: number }> {

@@ -424,7 +424,7 @@ export function MapContainer({
       }
 
       const speedSegments = buildSpeedSegmentFeatureCollection(safeTrackSamples);
-      const canRenderSpeedRoute = showSpeedLegend && speedSegments.features.length >= 3;
+      const canRenderSpeedRoute = showSpeedLegend && speedSegments.features.length >= 1;
 
       if (canRenderSpeedRoute) {
         upsertSegmentSpeedLayer(map.current, "ride-route-speed", "ride-route-speed-layer", speedSegments);
@@ -788,9 +788,9 @@ export function MapContainer({
         {showSpeedLegend && safeRouteCoordinates.length > 1 && (
           <div className="absolute bottom-3 left-3 z-[5] rounded-lg border border-slate-200/80 bg-white/90 px-2.5 py-2 text-[10px] text-slate-600 shadow-sm backdrop-blur-sm">
             <p className="font-semibold uppercase tracking-wide text-slate-700">Velocidad</p>
-            <p className="mt-1 flex items-center gap-1.5"><span className="inline-block h-1.5 w-3 rounded-full bg-sky-500" /> Baja (&lt;15)</p>
-            <p className="mt-0.5 flex items-center gap-1.5"><span className="inline-block h-1.5 w-3 rounded-full bg-emerald-500" /> Media (15-30)</p>
-            <p className="mt-0.5 flex items-center gap-1.5"><span className="inline-block h-1.5 w-3 rounded-full bg-orange-500" /> Alta (&gt;=30)</p>
+            <p className="mt-1 flex items-center gap-1.5"><span className="inline-block h-1.5 w-3 rounded-full bg-sky-500" /> Baja (&lt;30)</p>
+            <p className="mt-0.5 flex items-center gap-1.5"><span className="inline-block h-1.5 w-3 rounded-full bg-emerald-500" /> Media (30-55)</p>
+            <p className="mt-0.5 flex items-center gap-1.5"><span className="inline-block h-1.5 w-3 rounded-full bg-orange-500" /> Alta (&gt;55)</p>
           </div>
         )}
         <div ref={mapContainer} className="h-full w-full" />
@@ -895,7 +895,7 @@ function upsertSegmentSpeedLayer(
   layerId: string,
   data: FeatureCollection<
     LineString,
-    { speedKmh: number; speedBucket: "low" | "medium" | "high" }
+    { speedKmh: number | null; speedBucket: "low" | "medium" | "high" | "unknown" }
   >
 ) {
   if (map.getSource(sourceId)) {
@@ -932,6 +932,8 @@ function upsertSegmentSpeedLayer(
         "#22c55e",
         "high",
         "#f97316",
+        "unknown",
+        "#94a3b8",
         ROUTE_COLORS.live,
       ],
       "line-width": 4.5,
