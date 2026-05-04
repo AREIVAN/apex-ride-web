@@ -5,11 +5,28 @@ import type { GpsFix } from "./tracking-types";
 const MIN_ACCURACY_M = 5;
 const MAX_ACCURACY_M = 25;
 
-export function generateDemoRidePoints(startTimestamp = Date.now()): GpsFix[] {
-  return demoRideRoute.map((point, index, route) => {
-    const previous = route[index - 1];
+interface DemoPoint {
+  lat: number;
+  lng: number;
+  altitudeM?: number;
+}
+
+function convertCoordinatesToDemoPoints(coordinates: [number, number][]): DemoPoint[] {
+  return coordinates.map(([lng, lat]) => ({ lat, lng }));
+}
+
+export function generateDemoRidePoints(
+  startTimestamp = Date.now(),
+  customRouteCoordinates?: [number, number][]
+): GpsFix[] {
+  const route = customRouteCoordinates 
+    ? convertCoordinatesToDemoPoints(customRouteCoordinates)
+    : demoRideRoute;
+
+  return route.map((point, index, routeArr) => {
+    const previous = routeArr[index - 1];
     const distanceM = previous ? haversineMeters(previous, point) : 0;
-    const baseSpeedKmh = getDemoSpeedKmh(index, route.length, distanceM);
+    const baseSpeedKmh = getDemoSpeedKmh(index, routeArr.length, distanceM);
     const variedSpeedKmh = baseSpeedKmh === 0 ? 0 : clamp(baseSpeedKmh + Math.sin(index * 0.7) * 2.4, 0, 60);
 
     return {

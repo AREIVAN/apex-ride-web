@@ -8,15 +8,18 @@ type RideSimulatorStatus = "idle" | "running" | "paused" | "completed";
 interface RideSimulatorOptions {
   onFix: (fix: GpsFix) => void;
   onComplete?: () => void;
+  /** Custom route coordinates to use instead of demo route */
+  customRouteCoordinates?: [number, number][];
 }
 
-export function useRideSimulator({ onFix, onComplete }: RideSimulatorOptions) {
+export function useRideSimulator({ onFix, onComplete, customRouteCoordinates }: RideSimulatorOptions) {
   const [status, setStatus] = useState<RideSimulatorStatus>("idle");
   const pointsRef = useRef<GpsFix[]>([]);
   const cursorRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onFixRef = useRef(onFix);
   const onCompleteRef = useRef(onComplete);
+  const customRouteRef = useRef(customRouteCoordinates);
 
   useEffect(() => {
     onFixRef.current = onFix;
@@ -25,6 +28,10 @@ export function useRideSimulator({ onFix, onComplete }: RideSimulatorOptions) {
   useEffect(() => {
     onCompleteRef.current = onComplete;
   }, [onComplete]);
+
+  useEffect(() => {
+    customRouteRef.current = customRouteCoordinates;
+  }, [customRouteCoordinates]);
 
   const clearTimer = useCallback(() => {
     if (intervalRef.current) {
@@ -61,7 +68,8 @@ export function useRideSimulator({ onFix, onComplete }: RideSimulatorOptions) {
   }, [clearTimer, emitNextFix]);
 
   const start = useCallback(() => {
-    pointsRef.current = generateDemoRidePoints(Date.now());
+    // Use custom route if provided, otherwise use demo route
+    pointsRef.current = generateDemoRidePoints(Date.now(), customRouteRef.current);
     cursorRef.current = 0;
     setStatus("running");
     startTimer();

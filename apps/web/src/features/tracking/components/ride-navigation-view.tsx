@@ -18,6 +18,12 @@ interface RideNavigationViewProps {
   followCurrentPosition: boolean;
   recenterTrigger: number;
   plannedDistanceM?: number | null;
+  /** Remaining distance for planned route (in meters) */
+  remainingDistanceM?: number | null;
+  /** Planned route coordinates for displaying planned route on map */
+  plannedRouteCoordinates?: [number, number][];
+  /** Destination coordinate for displaying destination marker */
+  destinationCoordinate?: [number, number] | null;
   onRecenter: () => void;
   onFollowInterrupted: () => void;
 }
@@ -33,6 +39,9 @@ export function RideNavigationView({
   followCurrentPosition,
   recenterTrigger,
   plannedDistanceM,
+  remainingDistanceM,
+  plannedRouteCoordinates,
+  destinationCoordinate,
   onRecenter,
   onFollowInterrupted,
 }: RideNavigationViewProps) {
@@ -60,6 +69,9 @@ export function RideNavigationView({
         followCurrentPosition={followCurrentPosition}
         onFollowInterrupted={onFollowInterrupted}
         preserveCameraOnRouteUpdates={true}
+        plannedRouteCoordinates={plannedRouteCoordinates}
+        destinationCoordinate={destinationCoordinate}
+        plannedRouteFitBounds={false}
       />
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] h-40 bg-gradient-to-t from-black/35 via-black/12 to-transparent" />
@@ -76,7 +88,7 @@ export function RideNavigationView({
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col items-center gap-2 p-3 pb-[max(12px,env(safe-area-inset-bottom))] landscape:flex-row landscape:items-end landscape:justify-between landscape:gap-2">
         <div className="w-full max-w-[620px] landscape:min-w-0 landscape:max-w-[560px] landscape:flex-1">
-          <RideHud rideState={rideState} plannedDistanceM={plannedDistanceM} />
+          <RideHud rideState={rideState} plannedDistanceM={plannedDistanceM} remainingDistanceM={remainingDistanceM} />
         </div>
         <RideMapControls
           isPaused={isPaused}

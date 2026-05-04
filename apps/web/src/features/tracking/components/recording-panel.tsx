@@ -36,6 +36,8 @@ interface RecordingPanelProps {
   onRecordingStarted?: () => void;
   onSegmentSnapshotUpdate?: (snapshot: SegmentLiveSnapshot | null) => void;
   onRideStateChange?: (state: RecordingPanelState) => void;
+  /** Route geometry for the simulator to use instead of demo route */
+  plannedRouteCoordinates?: [number, number][];
 }
 
 export type RecordingStatus = "idle" | "countdown" | "starting" | "recording" | "paused" | "saving";
@@ -266,6 +268,7 @@ export function RecordingPanel({
   onRecordingStarted,
   onSegmentSnapshotUpdate,
   onRideStateChange,
+  plannedRouteCoordinates,
 }: RecordingPanelProps) {
   const service = useMemo(() => createTrackingService(createClient()), []);
   const attemptsLocalService = useMemo(() => createSegmentAttemptsLocalService(), []);
@@ -583,6 +586,7 @@ export function RecordingPanel({
       setMetrics(prev => ({ ...prev, speedKmh: 0 }));
       setPanelMessage("Demo completada. Finalizá para guardar la rodada simulada.");
     },
+    customRouteCoordinates: plannedRouteCoordinates,
   });
 
   function beginWatch() {

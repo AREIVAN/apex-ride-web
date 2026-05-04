@@ -49,6 +49,12 @@ interface MapContainerProps {
   followCurrentPosition?: boolean;
   onFollowInterrupted?: () => void;
   preserveCameraOnRouteUpdates?: boolean;
+  // Planned route props
+  plannedRouteCoordinates?: [number, number][];
+  destinationCoordinate?: [number, number] | null;
+  plannedRouteFitBounds?: boolean;
+  // Callback to expose user location from map's visual position
+  onUserLocationChange?: (position: [number, number] | null) => void;
 }
 
 const DEFAULT_ZOOM = MAP_DEFAULTS.zoom;
@@ -203,6 +209,10 @@ export function MapContainer({
   followCurrentPosition = false,
   onFollowInterrupted,
   preserveCameraOnRouteUpdates = false,
+  plannedRouteCoordinates,
+  destinationCoordinate,
+  plannedRouteFitBounds = true,
+  onUserLocationChange,
 }: MapContainerProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
@@ -214,8 +224,12 @@ export function MapContainer({
   const currentPositionMarker = useRef<mapboxgl.Marker | null>(null);
   const routeMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const segmentMarkersRef = useRef<mapboxgl.Marker[]>([]);
+  const destinationMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const plannedRouteFitBoundsDoneRef = useRef(false);
   const lastFollowAtRef = useRef(0);
   const isProgrammaticCameraMoveRef = useRef(false);
+  const lastUserLocationRef = useRef<string | null>(null);
+  const geolocateControlRef = useRef<mapboxgl.GeolocateControl | null>(null);
 
   const safeRouteCoordinates = useMemo(
     () => routeCoordinates ? filterValidCoordinates(routeCoordinates) : [],
@@ -224,6 +238,14 @@ export function MapContainer({
   const safeSegmentCoordinates = useMemo(
     () => segmentCoordinates ? filterValidCoordinates(segmentCoordinates) : [],
     [segmentCoordinates]
+  );
+  const safePlannedRouteCoordinates = useMemo(
+    () => plannedRouteCoordinates ? filterValidCoordinates(plannedRouteCoordinates) : [],
+    [plannedRouteCoordinates]
+  );
+  const safeDestinationCoordinate = useMemo(
+    () => destinationCoordinate ? normalizeCoordinate(destinationCoordinate) : null,
+    [destinationCoordinate]
   );
   const safeTrackSamples = useMemo(
     () =>
@@ -257,6 +279,20 @@ export function MapContainer({
     visualPositionStateRef.current = { currentKey, routeTailKey, position };
     return position;
   }, [routeTailPosition, safeCurrentPosition]);
+
+  // Notify parent component of user location changes (for route planning)
+  useEffect(() => {
+    if (!onUserLocationChange) return;
+
+    const currentKey = visualCurrentPosition ? coordinateKey(visualCurrentPosition) : null;
+    
+    // Only call callback if position changed
+    if (currentKey !== lastUserLocationRef.current) {
+      lastUserLocationRef.current = currentKey;
+      onUserLocationChange(visualCurrentPosition);
+    }
+  }, [visualCurrentPosition, onUserLocationChange]);
+
   const currentPositionBearing = useMemo(
     () => resolveCurrentPositionBearing(safeTrackSamples, safeRouteCoordinates, visualCurrentPosition),
     [safeRouteCoordinates, safeTrackSamples, visualCurrentPosition]
@@ -378,7 +414,24 @@ export function MapContainer({
 
         if (showControls) {
           map.current.addControl(new mapboxgl.NavigationControl(), "top-right");
-          map.current.addControl(new mapboxgl.GeolocateControl({ trackUserLocation: true }), "top-right");
+          
+          // Create and store GeolocateControl reference
+          const geolocate = new mapboxgl.GeolocateControl({
+            trackUserLocation: true,
+            showUserLocation: true,
+          });
+          geolocateControlRef.current = geolocate;
+          map.current.addControl(geolocate, "top-right");
+          
+          // Listen to geolocate events to notify parent of position changes
+          geolocate.on("geolocate", (e: { coords: { longitude: number; latitude: number } }) => {
+            const newPosition: [number, number] = [e.coords.longitude, e.coords.latitude];
+            const key = coordinateKey(newPosition);
+            if (key !== lastUserLocationRef.current && onUserLocationChange) {
+              lastUserLocationRef.current = key;
+              onUserLocationChange(newPosition);
+            }
+          });
         }
 
         // Add attribution control
@@ -455,6 +508,81 @@ export function MapContainer({
     if (map.current.isStyleLoaded()) drawRoute();
     else map.current.once("load", drawRoute);
   }, [preserveCameraOnRouteUpdates, safeRouteCoordinates, safeTrackSamples, showSpeedLegend]);
+
+  // Draw planned route on map (route before starting ride)
+  useEffect(() => {
+    if (!map.current) return;
+
+    const drawPlannedRoute = () => {
+      if (!map.current) return;
+
+      // Clear previous planned route
+      clearGeoJsonLayers(map.current, [
+        "planned-route-layer",
+        "planned-route-layer-outline",
+      ]);
+      removeSourceIfExists(map.current, "planned-route");
+
+      // Remove previous destination marker
+      if (destinationMarkerRef.current) {
+        destinationMarkerRef.current.remove();
+        destinationMarkerRef.current = null;
+      }
+
+      if (safePlannedRouteCoordinates.length < 2 || !safeDestinationCoordinate) {
+        plannedRouteFitBoundsDoneRef.current = false;
+        return;
+      }
+
+      // Draw planned route with distinct style (dashed, purple/blue)
+      upsertLineLayer({
+        map: map.current,
+        sourceId: "planned-route",
+        layerId: "planned-route-layer",
+        coordinates: safePlannedRouteCoordinates,
+        color: "#8b5cf6", // Purple/violet
+        width: 3.5,
+        outlineColor: "#ffffff",
+        outlineWidth: 6,
+        outlineOpacity: 0.6,
+        dashArray: [0.8, 0.4],
+        lineOpacity: 0.85,
+      });
+
+      // Add destination marker
+      const markerEl = createDestinationMarkerElement();
+      destinationMarkerRef.current = new mapboxgl.Marker({ element: markerEl })
+        .setLngLat(safeDestinationCoordinate)
+        .setPopup(
+          new mapboxgl.Popup({ offset: 25 }).setHTML(
+            '<div class="text-sm font-medium text-slate-900">Destino</div>'
+          )
+        )
+        .addTo(map.current);
+
+      // Fit bounds to show full planned route (only on initial calculation)
+      if (plannedRouteFitBounds && !plannedRouteFitBoundsDoneRef.current && safeRouteCoordinates.length === 0) {
+        const allCoords = [
+          ...safePlannedRouteCoordinates,
+          safeDestinationCoordinate,
+        ];
+        if (safeCurrentPosition) {
+          allCoords.push(safeCurrentPosition);
+        }
+        fitToCoordinates(map.current, allCoords, 60, 14, isProgrammaticCameraMoveRef);
+        plannedRouteFitBoundsDoneRef.current = true;
+      }
+    };
+
+    if (map.current.isStyleLoaded()) drawPlannedRoute();
+    else map.current.once("load", drawPlannedRoute);
+  }, [
+    plannedRouteFitBounds,
+    safePlannedRouteCoordinates,
+    safeDestinationCoordinate,
+    safeCurrentPosition,
+    safeRouteCoordinates.length,
+  ]);
 
   // Draw segment route on map
   useEffect(() => {
@@ -995,6 +1123,37 @@ function createRouteMarkerElement(label: "Inicio" | "Fin", type: "start" | "end"
     container.appendChild(dot);
     container.appendChild(badge);
   }
+
+  return container;
+}
+
+function createDestinationMarkerElement() {
+  const container = document.createElement("div");
+  container.className = "pointer-events-none flex items-center gap-1.5";
+
+  const pin = document.createElement("div");
+  pin.className = "relative";
+  
+  // Pin shape using CSS
+  const pinHead = document.createElement("span");
+  pinHead.className = "block h-5 w-5 rounded-full border-2 border-white shadow-lg";
+  pinHead.style.backgroundColor = "#8b5cf6"; // Purple
+  pinHead.style.boxShadow = "0 2px 8px rgba(139, 92, 246, 0.4)";
+  
+  const pinPoint = document.createElement("span");
+  pinPoint.className = "absolute left-1/2 top-5 -translate-x-1/2 border-x-4 border-t-4 border-x-transparent border-t-purple-500";
+  pinPoint.style.borderWidth = "6px";
+
+  pin.appendChild(pinHead);
+  pin.appendChild(pinPoint);
+  
+  const label = document.createElement("span");
+  label.className =
+    "rounded-md border border-slate-200 bg-white/95 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm";
+  label.textContent = "Destino";
+
+  container.appendChild(pin);
+  container.appendChild(label);
 
   return container;
 }

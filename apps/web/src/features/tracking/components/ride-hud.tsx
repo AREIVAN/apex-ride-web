@@ -7,9 +7,11 @@ import type { RecordingPanelState } from "./recording-panel";
 interface RideHudProps {
   rideState: RecordingPanelState;
   plannedDistanceM?: number | null;
+  /** Direct remaining distance calculation for planned routes */
+  remainingDistanceM?: number | null;
 }
 
-export function RideHud({ rideState, plannedDistanceM }: RideHudProps) {
+export function RideHud({ rideState, plannedDistanceM, remainingDistanceM }: RideHudProps) {
   const [now, setNow] = useState(() => new Date());
   const { metrics, segmentSnapshot } = rideState;
 
@@ -20,6 +22,7 @@ export function RideHud({ rideState, plannedDistanceM }: RideHudProps) {
 
   const routeSummary = useMemo(() => {
     const hasPlannedRoute = typeof plannedDistanceM === "number" && plannedDistanceM > 0;
+    
     if (!hasPlannedRoute) {
       return {
         label: "Sin ruta",
@@ -28,7 +31,10 @@ export function RideHud({ rideState, plannedDistanceM }: RideHudProps) {
       };
     }
 
-    const remainingM = Math.max(0, segmentSnapshot?.distanceToEndM ?? plannedDistanceM);
+    // Use direct remaining distance if provided (from planned route), otherwise use segment distance
+    const remainingM = (remainingDistanceM !== undefined && remainingDistanceM !== null)
+      ? remainingDistanceM 
+      : Math.max(0, segmentSnapshot?.distanceToEndM ?? plannedDistanceM);
     const eta = estimateEta(remainingM, metrics.speedKmh);
 
     return {
@@ -36,7 +42,7 @@ export function RideHud({ rideState, plannedDistanceM }: RideHudProps) {
       primary: formatDistance(remainingM),
       secondary: eta ? `ETA ${eta}` : "ETA --",
     };
-  }, [metrics.distanceM, metrics.speedKmh, plannedDistanceM, segmentSnapshot?.distanceToEndM]);
+  }, [metrics.distanceM, metrics.speedKmh, plannedDistanceM, remainingDistanceM, segmentSnapshot?.distanceToEndM]);
 
   return (
     <section className="pointer-events-auto w-full rounded-[26px] border border-white/10 bg-[rgba(10,15,25,0.94)] px-4 py-3 text-white shadow-[0_22px_54px_rgba(0,0,0,0.55),0_4px_14px_rgba(0,0,0,0.35)] sm:px-5 landscape:rounded-[24px] landscape:px-4 landscape:py-2">

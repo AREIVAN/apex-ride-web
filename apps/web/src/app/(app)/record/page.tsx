@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 
 import { MapContainer } from "@/features/maps/components/map-container";
 import { RideNavigationView } from "@/features/tracking/components/ride-navigation-view";
@@ -13,6 +13,11 @@ import { useAppShellNavigationMode } from "@/features/shared/ui/app-shell";
 import { LoadingState } from "@/features/shared/ui/loading-state";
 import type { SegmentDefinition } from "@/features/tracking/lib/tracking-types";
 import type { SegmentLiveSnapshot } from "@/features/tracking/lib/segment-live-tracker";
+import { DestinationSearchBox } from "@/features/routing/components/destination-search-box";
+import { PlannedRouteSummary } from "@/features/routing/components/planned-route-summary";
+import { createPlannedRoute } from "@/features/routing/services/mapbox-directions-service";
+import { calculateRemainingDistance, resolveRouteOriginCoordinate, isValidLngLat } from "@/features/routing/lib/planned-route-utils";
+import type { PlannedRoute, GeocodingResult } from "@/features/routing/types/planned-route";
 
 interface SegmentInfo {
   id: string;
@@ -39,6 +44,15 @@ export default function RecordPage() {
   const [trackSamples, setTrackSamples] = useState<LiveTrackPoint[]>([]);
   const [segmentLiveSnapshot, setSegmentLiveSnapshot] = useState<SegmentLiveSnapshot | null>(null);
   const [rideState, setRideState] = useState<RecordingPanelState | null>(null);
+  
+  // Planned route state
+  const [plannedRoute, setPlannedRoute] = useState<PlannedRoute | null>(null);
+  const [isCalculatingRoute, setIsCalculatingRoute] = useState(false);
+  const [routeError, setRouteError] = useState<string | null>(null);
+  // Pending destination - selected but waiting for GPS to calculate route
+  const [pendingDestination, setPendingDestination] = useState<GeocodingResult | null>(null);
+  // User location from map's visual position (point blue) - used for route planning before recording
+  const [mapUserLocation, setMapUserLocation] = useState<[number, number] | null>(null);
 
   // Check auth on mount
   useEffect(() => {
@@ -106,11 +120,104 @@ export default function RecordPage() {
     rideState?.status === "paused" ||
     rideState?.status === "saving";
 
+  // Calculate remaining distance for planned route during active ride
+  const remainingDistanceM = useMemo(() => {
+    if (!plannedRoute || !currentPosition || !isNavigationMode) {
+      return null;
+    }
+    return calculateRemainingDistance(currentPosition, plannedRoute);
+  }, [plannedRoute, currentPosition, isNavigationMode]);
+
   useEffect(() => {
     setNavigationMode(isNavigationMode);
 
     return () => setNavigationMode(false);
   }, [isNavigationMode, setNavigationMode]);
+
+  // Auto-calculate route when location becomes available and there's a pending destination
+  useEffect(() => {
+    const origin = resolveRouteOriginCoordinate(currentPosition, mapUserLocation, liveRoute);
+    if (!origin || !pendingDestination || plannedRoute) {
+      return;
+    }
+
+    const calculatePendingRoute = async () => {
+      setIsCalculatingRoute(true);
+      setRouteError(null);
+
+      try {
+        const route = await createPlannedRoute(origin, {
+          name: pendingDestination.name,
+          address: pendingDestination.address,
+          coordinate: pendingDestination.coordinate,
+        });
+
+        if (route) {
+          setPlannedRoute(route);
+          setPendingDestination(null);
+        } else {
+          setRouteError("No se pudo calcular la ruta");
+        }
+      } catch (error) {
+        console.error("[Route] Error calculating pending route:", error);
+        setRouteError("Error al calcular ruta");
+      } finally {
+        setIsCalculatingRoute(false);
+      }
+    };
+
+    calculatePendingRoute();
+  }, [currentPosition, mapUserLocation, liveRoute, pendingDestination, plannedRoute]);
+
+  // Handler when user selects a destination
+  const handleDestinationSelect = useCallback(async (result: GeocodingResult) => {
+    // Try to resolve origin from multiple sources
+    const origin = resolveRouteOriginCoordinate(currentPosition, mapUserLocation, liveRoute);
+    
+    // If no valid origin, save as pending
+    if (!origin) {
+      setPendingDestination(result);
+      setRouteError(null);
+      return;
+    }
+
+    // Has origin - calculate route immediately
+    setIsCalculatingRoute(true);
+    setRouteError(null);
+    setPendingDestination(null);
+
+    try {
+      const route = await createPlannedRoute(origin, {
+        name: result.name,
+        address: result.address,
+        coordinate: result.coordinate,
+      });
+
+      if (route) {
+        setPlannedRoute(route);
+      } else {
+        setRouteError("No se pudo calcular la ruta");
+      }
+    } catch (error) {
+      console.error("[Route] Error calculating route:", error);
+      setRouteError("Error al calcular ruta");
+    } finally {
+      setIsCalculatingRoute(false);
+    }
+  }, [currentPosition, mapUserLocation, liveRoute]);
+
+  // Clear planned route
+  const handleClearRoute = useCallback(() => {
+    setPlannedRoute(null);
+    setPendingDestination(null);
+    setRouteError(null);
+  }, []);
+
+  // Change destination (show search again)
+  const handleChangeDestination = useCallback(() => {
+    setPlannedRoute(null);
+    setPendingDestination(null);
+  }, []);
 
   if (isLoadingUser) {
     return (
@@ -157,6 +264,40 @@ export default function RecordPage() {
   return (
     <>
     <div className={`space-y-4 overflow-x-hidden ${isNavigationMode ? "hidden" : ""}`}>
+      {/* Route planning section - only show when not recording */}
+      {(!rideState || rideState.status === "idle") && (
+        <div className="space-y-3">
+          {/* Show pending destination message */}
+          {pendingDestination && !plannedRoute && !isCalculatingRoute && (
+            <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Destino seleccionado: <span className="font-medium">{pendingDestination.name}</span>. 
+              Esperando GPS para trazar ruta...
+            </div>
+          )}
+          {!plannedRoute ? (
+            <DestinationSearchBox
+              onDestinationSelect={handleDestinationSelect}
+              currentPosition={currentPosition}
+            />
+          ) : (
+            <PlannedRouteSummary
+              route={plannedRoute}
+              onClear={handleClearRoute}
+              onChangeDestination={handleChangeDestination}
+            />
+          )}
+          {routeError && (
+            <div className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
+              {routeError}
+            </div>
+          )}
+          {isCalculatingRoute && (
+            <div className="rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-700">
+              Calculando ruta...
+            </div>
+          )}
+        </div>
+      )}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_390px]">
         <div className="order-1 lg:order-2">
           <RecordingPanel
@@ -170,6 +311,7 @@ export default function RecordPage() {
             onRecordingStarted={() => {
               recenterMap();
             }}
+            plannedRouteCoordinates={plannedRoute?.geometry}
           />
         </div>
 
@@ -196,6 +338,10 @@ export default function RecordPage() {
             followCurrentPosition={followUser}
             onFollowInterrupted={() => setFollowUser(false)}
             preserveCameraOnRouteUpdates={true}
+            plannedRouteCoordinates={plannedRoute?.geometry ?? []}
+            destinationCoordinate={plannedRoute?.destination.coordinate ?? pendingDestination?.coordinate ?? null}
+            plannedRouteFitBounds={(!rideState || rideState.status === "idle") && !!plannedRoute}
+            onUserLocationChange={setMapUserLocation}
           />
         </div>
 
@@ -254,7 +400,10 @@ export default function RecordPage() {
         currentPosition={currentPosition}
         followCurrentPosition={followUser}
         recenterTrigger={recenterTrigger}
-        plannedDistanceM={selectedSegment?.distanceM ?? null}
+        plannedDistanceM={plannedRoute?.distanceM ?? selectedSegment?.distanceM ?? null}
+        remainingDistanceM={remainingDistanceM}
+        plannedRouteCoordinates={plannedRoute?.geometry}
+        destinationCoordinate={plannedRoute?.destination.coordinate ?? pendingDestination?.coordinate ?? null}
         onRecenter={recenterMap}
         onFollowInterrupted={() => setFollowUser(false)}
       />
