@@ -8,6 +8,7 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import type { SegmentLiveSnapshot } from "@/features/tracking/lib/segment-live-tracker";
 
 import { Card } from "@/features/shared/ui/card";
+import { cn } from "@/lib/utils/cn";
 import {
   MAP_DEFAULTS,
   MAP_FALLBACK_STYLE,
@@ -29,6 +30,12 @@ interface MapContainerProps {
   center?: [number, number];
   zoom?: number;
   showControls?: boolean;
+  variant?: "card" | "bare";
+  className?: string;
+  mapClassName?: string;
+  showHeader?: boolean;
+  showSpeedLegend?: boolean;
+  showSegmentOverlay?: boolean;
   onMapReady?: (map: mapboxgl.Map) => void;
   useUserLocation?: boolean;
   routeCoordinates?: [number, number][];
@@ -177,6 +184,12 @@ export function MapContainer({
   center,
   zoom = DEFAULT_ZOOM,
   showControls = true,
+  variant = "card",
+  className,
+  mapClassName,
+  showHeader = true,
+  showSpeedLegend = true,
+  showSegmentOverlay = true,
   onMapReady,
   useUserLocation = true,
   routeCoordinates,
@@ -665,12 +678,11 @@ export function MapContainer({
     };
   }, [followCurrentPosition, onFollowInterrupted]);
 
-  return (
-    <Card className="overflow-hidden p-0">
-      <div className="border-b border-slate-200/70 bg-white/70 px-4 py-3">
-        <h3 className="font-semibold text-slate-900">{title}</h3>
-      </div>
-      <div className="relative h-[320px] w-full sm:h-[360px] lg:h-[420px]">
+  const mapBody = (
+    <div className={cn(
+      variant === "bare" ? "relative h-full w-full" : "relative h-[320px] w-full sm:h-[360px] lg:h-[420px]",
+      mapClassName
+    )}>
         {isLoading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-100/90 backdrop-blur-[1px]">
             <div className="flex flex-col items-center gap-2">
@@ -687,7 +699,7 @@ export function MapContainer({
             </div>
           </div>
         )}
-        {!!effectiveSegmentRelation && (
+        {showSegmentOverlay && !!effectiveSegmentRelation && (
           <div className="absolute left-3 top-3 z-[5] rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-[11px] text-slate-700 shadow-sm backdrop-blur-sm">
             <p className="font-semibold text-slate-800">Intento segmento</p>
             <p>Estado: {segmentLiveSnapshot ? formatSegmentStatus(segmentLiveSnapshot.status) : "referencia"}</p>
@@ -695,7 +707,7 @@ export function MapContainer({
             <p>Progreso: {Math.round((segmentLiveSnapshot?.progressPct ?? effectiveSegmentRelation.progressPct))}%</p>
           </div>
         )}
-        {safeRouteCoordinates.length > 1 && (
+        {showSpeedLegend && safeRouteCoordinates.length > 1 && (
           <div className="absolute bottom-3 left-3 z-[5] rounded-lg border border-slate-200/80 bg-white/90 px-2.5 py-2 text-[10px] text-slate-600 shadow-sm backdrop-blur-sm">
             <p className="font-semibold uppercase tracking-wide text-slate-700">Velocidad</p>
             <p className="mt-1 flex items-center gap-1.5"><span className="inline-block h-1.5 w-3 rounded-full bg-sky-500" /> Baja (&lt;15)</p>
@@ -705,6 +717,24 @@ export function MapContainer({
         )}
         <div ref={mapContainer} className="h-full w-full" />
       </div>
+  );
+
+  if (variant === "bare") {
+    return (
+      <div className={cn("overflow-hidden", className)}>
+        {mapBody}
+      </div>
+    );
+  }
+
+  return (
+    <Card className={cn("overflow-hidden p-0", className)}>
+      {showHeader && (
+        <div className="border-b border-slate-200/70 bg-white/70 px-4 py-3">
+          <h3 className="font-semibold text-slate-900">{title}</h3>
+        </div>
+      )}
+      {mapBody}
     </Card>
   );
 }

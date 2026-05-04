@@ -3,11 +3,13 @@
 import { useState, useEffect, useMemo } from "react";
 
 import { MapContainer } from "@/features/maps/components/map-container";
-import { RecordingPanel, type LiveTrackPoint } from "@/features/tracking/components/recording-panel";
+import { RideNavigationView } from "@/features/tracking/components/ride-navigation-view";
+import { RecordingPanel, type LiveTrackPoint, type RecordingPanelState } from "@/features/tracking/components/recording-panel";
 import { createClient } from "@/lib/supabase/browser";
 import { createSegmentsService } from "@/features/segments/services/segments-service";
 import { Card } from "@/features/shared/ui/card";
 import { Button } from "@/features/shared/ui/button";
+import { useAppShellNavigationMode } from "@/features/shared/ui/app-shell";
 import { LoadingState } from "@/features/shared/ui/loading-state";
 import type { SegmentDefinition } from "@/features/tracking/lib/tracking-types";
 import type { SegmentLiveSnapshot } from "@/features/tracking/lib/segment-live-tracker";
@@ -24,6 +26,7 @@ interface SegmentInfo {
 }
 
 export default function RecordPage() {
+  const { setNavigationMode } = useAppShellNavigationMode();
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [isLoadingUser, setIsLoadingUser] = useState(true);
   const [selectedSegment, setSelectedSegment] = useState<SegmentInfo | null>(null);
@@ -35,6 +38,7 @@ export default function RecordPage() {
   const [followUser, setFollowUser] = useState(true);
   const [trackSamples, setTrackSamples] = useState<LiveTrackPoint[]>([]);
   const [segmentLiveSnapshot, setSegmentLiveSnapshot] = useState<SegmentLiveSnapshot | null>(null);
+  const [rideState, setRideState] = useState<RecordingPanelState | null>(null);
 
   // Check auth on mount
   useEffect(() => {
@@ -96,6 +100,18 @@ export default function RecordPage() {
     };
   }, [selectedSegment]);
 
+  const isNavigationMode =
+    rideState?.status === "starting" ||
+    rideState?.status === "recording" ||
+    rideState?.status === "paused" ||
+    rideState?.status === "saving";
+
+  useEffect(() => {
+    setNavigationMode(isNavigationMode);
+
+    return () => setNavigationMode(false);
+  }, [isNavigationMode, setNavigationMode]);
+
   if (isLoadingUser) {
     return (
       <div className="mx-auto max-w-2xl">
@@ -131,8 +147,16 @@ export default function RecordPage() {
     }
   }
 
+  const recenterMap = () => {
+    setFollowUser(true);
+    setRecenterTrigger(t => t + 1);
+  };
+
+  const navigationTitle = selectedSegment ? `Segmento: ${selectedSegment.name}` : "Navegación en vivo";
+
   return (
-    <div className="space-y-4 overflow-x-hidden">
+    <>
+    <div className={`space-y-4 overflow-x-hidden ${isNavigationMode ? "hidden" : ""}`}>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_390px]">
         <div className="order-1 lg:order-2">
           <RecordingPanel
@@ -142,9 +166,9 @@ export default function RecordPage() {
             onCurrentPositionUpdate={setCurrentPosition}
             onTrackPointsUpdate={setTrackSamples}
             onSegmentSnapshotUpdate={setSegmentLiveSnapshot}
+            onRideStateChange={setRideState}
             onRecordingStarted={() => {
-              setFollowUser(true);
-              setRecenterTrigger(t => t + 1);
+              recenterMap();
             }}
           />
         </div>
@@ -219,5 +243,22 @@ export default function RecordPage() {
         </Card>
       </div>
     </div>
+    {isNavigationMode && rideState && (
+      <RideNavigationView
+        rideState={rideState}
+        title={navigationTitle}
+        routeCoordinates={liveRoute}
+        trackSamples={trackSamples}
+        segmentCoordinates={segmentCoordinates}
+        segmentLiveSnapshot={segmentLiveSnapshot}
+        currentPosition={currentPosition}
+        followCurrentPosition={followUser}
+        recenterTrigger={recenterTrigger}
+        plannedDistanceM={selectedSegment?.distanceM ?? null}
+        onRecenter={recenterMap}
+        onFollowInterrupted={() => setFollowUser(false)}
+      />
+    )}
+    </>
   );
 }

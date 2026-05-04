@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { Button } from "@/features/shared/ui/button";
 import { Card } from "@/features/shared/ui/card";
 import { getTrackingQualityLabel, readLocalPreferences, type TrackingQuality } from "@/features/settings/lib/local-preferences";
+import { cn } from "@/lib/utils/cn";
 import type { SegmentAttempt, SegmentAttemptStatus } from "@/types/domain";
 import { createClient } from "@/lib/supabase/browser";
 
@@ -24,6 +25,7 @@ import { createTrackingService, mapDomainAttemptToBackendInsert } from "../servi
 
 interface RecordingPanelProps {
   riderId: string;
+  className?: string;
   onMetricsUpdate?: (metrics: RideMetrics) => void;
   onRouteUpdate?: (route: [number, number][]) => void;
   onCurrentPositionUpdate?: (position: [number, number] | null) => void;
@@ -31,6 +33,28 @@ interface RecordingPanelProps {
   activeSegment?: SegmentDefinition | null;
   onRecordingStarted?: () => void;
   onSegmentSnapshotUpdate?: (snapshot: SegmentLiveSnapshot | null) => void;
+  onRideStateChange?: (state: RecordingPanelState) => void;
+}
+
+export type RecordingStatus = "idle" | "countdown" | "starting" | "recording" | "paused" | "saving";
+
+export interface RecordingPanelState {
+  status: RecordingStatus;
+  metrics: RideMetrics;
+  gpsStatus: string;
+  gpsAccuracyM: number | null;
+  precisionStatus: string;
+  hasLiveFix: boolean;
+  panelMessage: string;
+  movingTimeLabel: string;
+  trackingQualityLabel: string;
+  activeSegmentName: string | null;
+  segmentSnapshot: SegmentLiveSnapshot | null;
+  actions: {
+    pause: () => void;
+    resume: () => void;
+    finish: () => void;
+  };
 }
 
 export interface RideMetrics {
@@ -222,6 +246,7 @@ function MetricCard({
 
 export function RecordingPanel({
   riderId,
+  className,
   onMetricsUpdate,
   onRouteUpdate,
   onCurrentPositionUpdate,
@@ -229,6 +254,7 @@ export function RecordingPanel({
   activeSegment,
   onRecordingStarted,
   onSegmentSnapshotUpdate,
+  onRideStateChange,
 }: RecordingPanelProps) {
   const service = useMemo(() => createTrackingService(createClient()), []);
   const attemptsLocalService = useMemo(() => createSegmentAttemptsLocalService(), []);
@@ -241,7 +267,7 @@ export function RecordingPanel({
   const rideIdRef = useRef<string | null>(null);
   const segmentTrackerRef = useRef<SegmentLiveTracker | null>(null);
 
-  const [status, setStatus] = useState<"idle" | "countdown" | "starting" | "recording" | "paused" | "saving">("idle");
+  const [status, setStatus] = useState<RecordingStatus>("idle");
   const [countdownValue, setCountdownValue] = useState<number | null>(null);
   const countdownTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [metrics, setMetrics] = useState<RideMetrics>({
@@ -766,8 +792,44 @@ export function RecordingPanel({
     }
   }
 
+  const rideState = useMemo<RecordingPanelState>(() => ({
+    status,
+    metrics,
+    gpsStatus,
+    gpsAccuracyM,
+    precisionStatus,
+    hasLiveFix,
+    panelMessage,
+    movingTimeLabel: `${movingMinutes}:${movingSeconds}`,
+    trackingQualityLabel: getTrackingQualityLabel(trackingQuality),
+    activeSegmentName: activeSegment?.name ?? null,
+    segmentSnapshot,
+    actions: {
+      pause: pauseRecording,
+      resume: resumeRecording,
+      finish: finishRecording,
+    },
+  }), [
+    activeSegment?.name,
+    gpsAccuracyM,
+    gpsStatus,
+    hasLiveFix,
+    metrics,
+    movingMinutes,
+    movingSeconds,
+    panelMessage,
+    precisionStatus,
+    segmentSnapshot,
+    status,
+    trackingQuality,
+  ]);
+
+  useEffect(() => {
+    onRideStateChange?.(rideState);
+  }, [onRideStateChange, rideState]);
+
   return (
-    <div className="space-y-4">
+    <div className={cn("space-y-4", className)}>
       {/* Live metrics */}
       <Card className="sticky top-2 z-20 border-slate-200 bg-white/95 p-4 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/90 sm:top-3 sm:p-5 lg:static lg:top-auto lg:z-auto lg:bg-white lg:shadow-none lg:backdrop-blur-0">
         <div className="mb-3 flex items-center justify-between gap-2">
