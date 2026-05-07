@@ -62,7 +62,12 @@ const FALLBACK_CENTER = MAP_DEFAULTS.center;
 const MAP_FATAL_ERROR_COPY =
   "No pudimos cargar el mapa. Puede haber un problema de configuración del proveedor o de conectividad.";
 
-type MapErrorKind = "fatal-auth" | "fatal-style" | "fatal-load" | "transient" | "unknown";
+type MapErrorKind =
+  | "fatal-auth"
+  | "fatal-style"
+  | "fatal-load"
+  | "transient"
+  | "unknown";
 
 type ClassifiedMapError = {
   kind: MapErrorKind;
@@ -119,7 +124,11 @@ function normalizeMapErrorMessage(error: unknown): string {
 function extractStatus(error: unknown): number | undefined {
   if (!error || typeof error !== "object") return undefined;
 
-  const e = error as { status?: unknown; statusCode?: unknown; httpStatus?: unknown };
+  const e = error as {
+    status?: unknown;
+    statusCode?: unknown;
+    httpStatus?: unknown;
+  };
   const statusValue = e.status ?? e.statusCode ?? e.httpStatus;
   return typeof statusValue === "number" ? statusValue : undefined;
 }
@@ -134,16 +143,24 @@ function classifyMapError(event: unknown): ClassifiedMapError {
   const error = eventData.error ?? event;
   const message = normalizeMapErrorMessage(error);
   const status = extractStatus(error);
-  const sourceId = typeof eventData.sourceId === "string" ? eventData.sourceId : undefined;
+  const sourceId =
+    typeof eventData.sourceId === "string" ? eventData.sourceId : undefined;
   const sourceDataType =
-    typeof eventData.sourceDataType === "string" ? eventData.sourceDataType : undefined;
-  const text = `${message} ${sourceId ?? ""} ${sourceDataType ?? ""}`.toLowerCase();
+    typeof eventData.sourceDataType === "string"
+      ? eventData.sourceDataType
+      : undefined;
+  const text =
+    `${message} ${sourceId ?? ""} ${sourceDataType ?? ""}`.toLowerCase();
 
   if (status === 401 || status === 403) {
     return { kind: "fatal-auth", fatal: true, message, status, sourceId };
   }
 
-  if (/token|unauthorized|forbidden|not authorized|authentication|access denied/.test(text)) {
+  if (
+    /token|unauthorized|forbidden|not authorized|authentication|access denied/.test(
+      text,
+    )
+  ) {
     return { kind: "fatal-auth", fatal: true, message, status, sourceId };
   }
 
@@ -181,7 +198,7 @@ function getUserLocation(): Promise<[number, number]> {
       () => {
         resolve(FALLBACK_CENTER);
       },
-      { timeout: 10000, maximumAge: 300000 }
+      { timeout: 10000, maximumAge: 300000 },
     );
   });
 }
@@ -218,7 +235,8 @@ export function MapContainer({
   const map = useRef<mapboxgl.Map | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const getUserLocationFn = useRef<() => Promise<[number, number]>>(getUserLocation);
+  const getUserLocationFn =
+    useRef<() => Promise<[number, number]>>(getUserLocation);
   const isUsingFallbackStyle = useRef(false);
   const hasAttemptedFallback = useRef(false);
   const currentPositionMarker = useRef<mapboxgl.Marker | null>(null);
@@ -232,32 +250,40 @@ export function MapContainer({
   const geolocateControlRef = useRef<mapboxgl.GeolocateControl | null>(null);
 
   const safeRouteCoordinates = useMemo(
-    () => routeCoordinates ? filterValidCoordinates(routeCoordinates) : [],
-    [routeCoordinates]
+    () => (routeCoordinates ? filterValidCoordinates(routeCoordinates) : []),
+    [routeCoordinates],
   );
   const safeSegmentCoordinates = useMemo(
-    () => segmentCoordinates ? filterValidCoordinates(segmentCoordinates) : [],
-    [segmentCoordinates]
+    () =>
+      segmentCoordinates ? filterValidCoordinates(segmentCoordinates) : [],
+    [segmentCoordinates],
   );
   const safePlannedRouteCoordinates = useMemo(
-    () => plannedRouteCoordinates ? filterValidCoordinates(plannedRouteCoordinates) : [],
-    [plannedRouteCoordinates]
+    () =>
+      plannedRouteCoordinates
+        ? filterValidCoordinates(plannedRouteCoordinates)
+        : [],
+    [plannedRouteCoordinates],
   );
   const safeDestinationCoordinate = useMemo(
-    () => destinationCoordinate ? normalizeCoordinate(destinationCoordinate) : null,
-    [destinationCoordinate]
+    () =>
+      destinationCoordinate ? normalizeCoordinate(destinationCoordinate) : null,
+    [destinationCoordinate],
   );
   const safeTrackSamples = useMemo(
     () =>
       trackSamples.filter(
-        (sample) => Number.isFinite(sample.lng) && Number.isFinite(sample.lat)
+        (sample) => Number.isFinite(sample.lng) && Number.isFinite(sample.lat),
       ),
-    [trackSamples]
+    [trackSamples],
   );
-  const safeCurrentPosition = useMemo(() => normalizeCoordinate(currentPosition), [currentPosition]);
+  const safeCurrentPosition = useMemo(
+    () => normalizeCoordinate(currentPosition),
+    [currentPosition],
+  );
   const routeTailPosition = useMemo(
     () => safeRouteCoordinates.at(-1) ?? null,
-    [safeRouteCoordinates]
+    [safeRouteCoordinates],
   );
   const visualPositionStateRef = useRef<{
     currentKey: string | null;
@@ -265,8 +291,12 @@ export function MapContainer({
     position: [number, number] | null;
   }>({ currentKey: null, routeTailKey: null, position: null });
   const visualCurrentPosition = useMemo(() => {
-    const currentKey = safeCurrentPosition ? coordinateKey(safeCurrentPosition) : null;
-    const routeTailKey = routeTailPosition ? coordinateKey(routeTailPosition) : null;
+    const currentKey = safeCurrentPosition
+      ? coordinateKey(safeCurrentPosition)
+      : null;
+    const routeTailKey = routeTailPosition
+      ? coordinateKey(routeTailPosition)
+      : null;
     const previous = visualPositionStateRef.current;
 
     const position =
@@ -274,7 +304,7 @@ export function MapContainer({
         ? safeCurrentPosition
         : routeTailPosition && routeTailKey !== previous.routeTailKey
           ? routeTailPosition
-          : safeCurrentPosition ?? routeTailPosition;
+          : (safeCurrentPosition ?? routeTailPosition);
 
     visualPositionStateRef.current = { currentKey, routeTailKey, position };
     return position;
@@ -284,8 +314,10 @@ export function MapContainer({
   useEffect(() => {
     if (!onUserLocationChange) return;
 
-    const currentKey = visualCurrentPosition ? coordinateKey(visualCurrentPosition) : null;
-    
+    const currentKey = visualCurrentPosition
+      ? coordinateKey(visualCurrentPosition)
+      : null;
+
     // Only call callback if position changed
     if (currentKey !== lastUserLocationRef.current) {
       lastUserLocationRef.current = currentKey;
@@ -294,22 +326,32 @@ export function MapContainer({
   }, [visualCurrentPosition, onUserLocationChange]);
 
   const currentPositionBearing = useMemo(
-    () => resolveCurrentPositionBearing(safeTrackSamples, safeRouteCoordinates, visualCurrentPosition),
-    [safeRouteCoordinates, safeTrackSamples, visualCurrentPosition]
+    () =>
+      resolveCurrentPositionBearing(
+        safeTrackSamples,
+        safeRouteCoordinates,
+        visualCurrentPosition,
+      ),
+    [safeRouteCoordinates, safeTrackSamples, visualCurrentPosition],
   );
   const segmentRelation = useMemo(
     () =>
       visualCurrentPosition && safeSegmentCoordinates.length >= 2
         ? computeSegmentRelation(visualCurrentPosition, safeSegmentCoordinates)
         : null,
-    [safeSegmentCoordinates, visualCurrentPosition]
+    [safeSegmentCoordinates, visualCurrentPosition],
   );
   const snapshotRelation = useMemo(() => {
-    if (!segmentLiveSnapshot || segmentLiveSnapshot.projectedSegmentIndex === null) {
+    if (
+      !segmentLiveSnapshot ||
+      segmentLiveSnapshot.projectedSegmentIndex === null
+    ) {
       return null;
     }
 
-    const projectedPoint = normalizeCoordinate(segmentLiveSnapshot?.projectedPoint);
+    const projectedPoint = normalizeCoordinate(
+      segmentLiveSnapshot?.projectedPoint,
+    );
     if (!projectedPoint) return null;
 
     return {
@@ -321,10 +363,14 @@ export function MapContainer({
   }, [segmentLiveSnapshot]);
   const effectiveSegmentRelation = snapshotRelation ?? segmentRelation;
   const segmentProgressCoordinates = useMemo(
-    () => buildSegmentProgressCoordinates(safeSegmentCoordinates, effectiveSegmentRelation),
-    [effectiveSegmentRelation, safeSegmentCoordinates]
+    () =>
+      buildSegmentProgressCoordinates(
+        safeSegmentCoordinates,
+        effectiveSegmentRelation,
+      ),
+    [effectiveSegmentRelation, safeSegmentCoordinates],
   );
-  
+
   useEffect(() => {
     // Skip if map already initialized or no container
     if (!mapContainer.current || map.current) return;
@@ -364,7 +410,11 @@ export function MapContainer({
         });
 
         const attemptOsmFallback = () => {
-          if (!map.current || isUsingFallbackStyle.current || hasAttemptedFallback.current) {
+          if (
+            !map.current ||
+            isUsingFallbackStyle.current ||
+            hasAttemptedFallback.current
+          ) {
             return false;
           }
 
@@ -397,14 +447,18 @@ export function MapContainer({
           }
 
           if (
-            (classified.kind === "fatal-auth" || classified.kind === "fatal-style") &&
+            (classified.kind === "fatal-auth" ||
+              classified.kind === "fatal-style") &&
             attemptOsmFallback()
           ) {
-            console.warn("[Map] Switching to OSM fallback after fatal Mapbox error", {
-              kind: classified.kind,
-              message: classified.message,
-              status: classified.status,
-            });
+            console.warn(
+              "[Map] Switching to OSM fallback after fatal Mapbox error",
+              {
+                kind: classified.kind,
+                message: classified.message,
+                status: classified.status,
+              },
+            );
             return;
           }
 
@@ -414,7 +468,7 @@ export function MapContainer({
 
         if (showControls) {
           map.current.addControl(new mapboxgl.NavigationControl(), "top-right");
-          
+
           // Create and store GeolocateControl reference
           const geolocate = new mapboxgl.GeolocateControl({
             trackUserLocation: true,
@@ -422,22 +476,28 @@ export function MapContainer({
           });
           geolocateControlRef.current = geolocate;
           map.current.addControl(geolocate, "top-right");
-          
+
           // Listen to geolocate events to notify parent of position changes
-          geolocate.on("geolocate", (e: { coords: { longitude: number; latitude: number } }) => {
-            const newPosition: [number, number] = [e.coords.longitude, e.coords.latitude];
-            const key = coordinateKey(newPosition);
-            if (key !== lastUserLocationRef.current && onUserLocationChange) {
-              lastUserLocationRef.current = key;
-              onUserLocationChange(newPosition);
-            }
-          });
+          geolocate.on(
+            "geolocate",
+            (e: { coords: { longitude: number; latitude: number } }) => {
+              const newPosition: [number, number] = [
+                e.coords.longitude,
+                e.coords.latitude,
+              ];
+              const key = coordinateKey(newPosition);
+              if (key !== lastUserLocationRef.current && onUserLocationChange) {
+                lastUserLocationRef.current = key;
+                onUserLocationChange(newPosition);
+              }
+            },
+          );
         }
 
         // Add attribution control
         map.current.addControl(
           new mapboxgl.AttributionControl({ compact: true }),
-          "bottom-right"
+          "bottom-right",
         );
       } catch (error) {
         console.error("Map initialization error:", error);
@@ -476,15 +536,28 @@ export function MapContainer({
         return;
       }
 
-      const speedSegments = buildSpeedSegmentFeatureCollection(safeTrackSamples);
-      const canRenderSpeedRoute = showSpeedLegend && speedSegments.features.length >= 1;
+      const speedSegments =
+        buildSpeedSegmentFeatureCollection(safeTrackSamples);
+      const canRenderSpeedRoute =
+        showSpeedLegend && speedSegments.features.length >= 1;
 
       if (canRenderSpeedRoute) {
-        upsertSegmentSpeedLayer(map.current, "ride-route-speed", "ride-route-speed-layer", speedSegments);
-        clearGeoJsonLayers(map.current, ["ride-route-layer", "ride-route-layer-outline"]);
+        upsertSegmentSpeedLayer(
+          map.current,
+          "ride-route-speed",
+          "ride-route-speed-layer",
+          speedSegments,
+        );
+        clearGeoJsonLayers(map.current, [
+          "ride-route-layer",
+          "ride-route-layer-outline",
+        ]);
         removeSourceIfExists(map.current, "ride-route");
       } else {
-        clearGeoJsonLayers(map.current, ["ride-route-speed-layer", "ride-route-speed-layer-outline"]);
+        clearGeoJsonLayers(map.current, [
+          "ride-route-speed-layer",
+          "ride-route-speed-layer-outline",
+        ]);
         removeSourceIfExists(map.current, "ride-route-speed");
 
         upsertLineLayer({
@@ -501,13 +574,24 @@ export function MapContainer({
       }
 
       if (!preserveCameraOnRouteUpdates) {
-        fitToCoordinates(map.current, safeRouteCoordinates, 60, 16, isProgrammaticCameraMoveRef);
+        fitToCoordinates(
+          map.current,
+          safeRouteCoordinates,
+          60,
+          16,
+          isProgrammaticCameraMoveRef,
+        );
       }
     };
 
     if (map.current.isStyleLoaded()) drawRoute();
     else map.current.once("load", drawRoute);
-  }, [preserveCameraOnRouteUpdates, safeRouteCoordinates, safeTrackSamples, showSpeedLegend]);
+  }, [
+    preserveCameraOnRouteUpdates,
+    safeRouteCoordinates,
+    safeTrackSamples,
+    showSpeedLegend,
+  ]);
 
   // Draw planned route on map (route before starting ride)
   useEffect(() => {
@@ -529,7 +613,10 @@ export function MapContainer({
         destinationMarkerRef.current = null;
       }
 
-      if (safePlannedRouteCoordinates.length < 2 || !safeDestinationCoordinate) {
+      if (
+        safePlannedRouteCoordinates.length < 2 ||
+        !safeDestinationCoordinate
+      ) {
         plannedRouteFitBoundsDoneRef.current = false;
         return;
       }
@@ -555,13 +642,17 @@ export function MapContainer({
         .setLngLat(safeDestinationCoordinate)
         .setPopup(
           new mapboxgl.Popup({ offset: 25 }).setHTML(
-            '<div class="text-sm font-medium text-slate-900">Destino</div>'
-          )
+            '<div class="text-sm font-medium text-slate-900">Destino</div>',
+          ),
         )
         .addTo(map.current);
 
       // Fit bounds to show full planned route (only on initial calculation)
-      if (plannedRouteFitBounds && !plannedRouteFitBoundsDoneRef.current && safeRouteCoordinates.length === 0) {
+      if (
+        plannedRouteFitBounds &&
+        !plannedRouteFitBoundsDoneRef.current &&
+        safeRouteCoordinates.length === 0
+      ) {
         const allCoords = [
           ...safePlannedRouteCoordinates,
           safeDestinationCoordinate,
@@ -569,7 +660,13 @@ export function MapContainer({
         if (safeCurrentPosition) {
           allCoords.push(safeCurrentPosition);
         }
-        fitToCoordinates(map.current, allCoords, 60, 14, isProgrammaticCameraMoveRef);
+        fitToCoordinates(
+          map.current,
+          allCoords,
+          60,
+          14,
+          isProgrammaticCameraMoveRef,
+        );
         plannedRouteFitBoundsDoneRef.current = true;
       }
     };
@@ -619,12 +716,11 @@ export function MapContainer({
         sourceId: "segment-route",
         layerId: "segment-route-layer",
         coordinates: safeSegmentCoordinates,
-        color: segmentBaseStyle.color,
-        width: ROUTE_WIDTHS.segment,
-        outlineColor: "#f8fafc",
-        outlineWidth: ROUTE_WIDTHS.segment + 3,
-        dashArray: segmentBaseStyle.dashArray,
-        lineOpacity: segmentBaseStyle.opacity,
+        color: "#dc2626",
+        width: ROUTE_WIDTHS.segment - 1,
+        outlineColor: "#ffffff",
+        outlineWidth: ROUTE_WIDTHS.segment + 2,
+        lineOpacity: 1,
       });
 
       if (segmentProgressCoordinates.length >= 2) {
@@ -640,7 +736,10 @@ export function MapContainer({
           lineOpacity: progressStyle.opacity,
         });
       } else {
-        clearGeoJsonLayers(map.current, ["segment-progress-layer", "segment-progress-layer-outline"]);
+        clearGeoJsonLayers(map.current, [
+          "segment-progress-layer",
+          "segment-progress-layer-outline",
+        ]);
         removeSourceIfExists(map.current, "segment-progress");
       }
 
@@ -654,7 +753,10 @@ export function MapContainer({
           map: map.current,
           sourceId: "segment-connector",
           layerId: "segment-connector-layer",
-          coordinates: [visualCurrentPosition, effectiveSegmentRelation.projectedPoint],
+          coordinates: [
+            visualCurrentPosition,
+            effectiveSegmentRelation.projectedPoint,
+          ],
           color: "#475569",
           width: 1.6,
           outlineColor: "#ffffff",
@@ -663,12 +765,21 @@ export function MapContainer({
           lineOpacity: 0.42,
         });
       } else {
-        clearGeoJsonLayers(map.current, ["segment-connector-layer", "segment-connector-layer-outline"]);
+        clearGeoJsonLayers(map.current, [
+          "segment-connector-layer",
+          "segment-connector-layer-outline",
+        ]);
         removeSourceIfExists(map.current, "segment-connector");
       }
 
       if (shouldAutoFocusSegment) {
-        fitToCoordinates(map.current, safeSegmentCoordinates, 50, 15, isProgrammaticCameraMoveRef);
+        fitToCoordinates(
+          map.current,
+          safeSegmentCoordinates,
+          50,
+          15,
+          isProgrammaticCameraMoveRef,
+        );
       }
     };
 
@@ -697,15 +808,28 @@ export function MapContainer({
       if (!map.current) return;
 
       const startCoord = safeSegmentCoordinates[0];
-      const startMarker = new mapboxgl.Marker({ element: createSegmentMarkerElement("Inicio", "start") })
+      const startMarker = new mapboxgl.Marker({
+        element: createSegmentMarkerElement("Inicio", "start"),
+      })
         .setLngLat(startCoord)
-        .setPopup(new mapboxgl.Popup({ offset: 20 }).setHTML('<div class="text-sm font-medium text-slate-900">Inicio de segmento</div>'))
+        .setPopup(
+          new mapboxgl.Popup({ offset: 20 }).setHTML(
+            '<div class="text-sm font-medium text-slate-900">Inicio de segmento</div>',
+          ),
+        )
         .addTo(map.current);
 
-      const endCoord = safeSegmentCoordinates[safeSegmentCoordinates.length - 1];
-      const endMarker = new mapboxgl.Marker({ element: createSegmentMarkerElement("Meta", "end") })
+      const endCoord =
+        safeSegmentCoordinates[safeSegmentCoordinates.length - 1];
+      const endMarker = new mapboxgl.Marker({
+        element: createSegmentMarkerElement("Meta", "end"),
+      })
         .setLngLat(endCoord)
-        .setPopup(new mapboxgl.Popup({ offset: 20 }).setHTML('<div class="text-sm font-medium text-slate-900">Fin de segmento</div>'))
+        .setPopup(
+          new mapboxgl.Popup({ offset: 20 }).setHTML(
+            '<div class="text-sm font-medium text-slate-900">Fin de segmento</div>',
+          ),
+        )
         .addTo(map.current);
 
       segmentMarkersRef.current = [startMarker, endMarker];
@@ -734,15 +858,27 @@ export function MapContainer({
       if (!map.current || map.current !== mapInstance) return;
 
       const startCoord = safeRouteCoordinates[0];
-      const startMarker = new mapboxgl.Marker({ element: createRouteMarkerElement("Inicio", "start") })
+      const startMarker = new mapboxgl.Marker({
+        element: createRouteMarkerElement("Inicio", "start"),
+      })
         .setLngLat(startCoord)
-        .setPopup(new mapboxgl.Popup({ offset: 20 }).setHTML('<div class="text-sm font-medium text-slate-900">Inicio de rodada</div>'))
+        .setPopup(
+          new mapboxgl.Popup({ offset: 20 }).setHTML(
+            '<div class="text-sm font-medium text-slate-900">Inicio de rodada</div>',
+          ),
+        )
         .addTo(mapInstance);
 
       const endCoord = safeRouteCoordinates[safeRouteCoordinates.length - 1];
-      const endMarker = new mapboxgl.Marker({ element: createRouteMarkerElement("Fin", "end") })
+      const endMarker = new mapboxgl.Marker({
+        element: createRouteMarkerElement("Fin", "end"),
+      })
         .setLngLat(endCoord)
-        .setPopup(new mapboxgl.Popup({ offset: 20 }).setHTML('<div class="text-sm font-medium text-slate-900">Fin de rodada</div>'))
+        .setPopup(
+          new mapboxgl.Popup({ offset: 20 }).setHTML(
+            '<div class="text-sm font-medium text-slate-900">Fin de rodada</div>',
+          ),
+        )
         .addTo(mapInstance);
 
       routeMarkersRef.current = [startMarker, endMarker];
@@ -774,13 +910,16 @@ export function MapContainer({
     }
 
     async function recenter() {
-      const location = visualCurrentPosition ?? await getUserLocationFn.current();
+      const location =
+        visualCurrentPosition ?? (await getUserLocationFn.current());
       if (map.current) {
-        runProgrammaticCameraMove(isProgrammaticCameraMoveRef, () => map.current?.flyTo({
-          center: location,
-          zoom: MAP_DEFAULTS.zoomStreet,
-          duration: MAP_DEFAULTS.flyDuration,
-        }));
+        runProgrammaticCameraMove(isProgrammaticCameraMoveRef, () =>
+          map.current?.flyTo({
+            center: location,
+            zoom: MAP_DEFAULTS.zoomStreet,
+            duration: MAP_DEFAULTS.flyDuration,
+          }),
+        );
       }
     }
 
@@ -789,7 +928,13 @@ export function MapContainer({
     } else {
       map.current?.once("load", recenter);
     }
-  }, [focusOnSegment, recenterTrigger, safeRouteCoordinates.length, safeSegmentCoordinates, visualCurrentPosition]);
+  }, [
+    focusOnSegment,
+    recenterTrigger,
+    safeRouteCoordinates.length,
+    safeSegmentCoordinates,
+    visualCurrentPosition,
+  ]);
 
   useEffect(() => {
     if (!map.current) return;
@@ -813,7 +958,10 @@ export function MapContainer({
       }
 
       currentPositionMarker.current.setLngLat(visualCurrentPosition);
-      updateCurrentPositionMarkerBearing(currentPositionMarker.current.getElement(), currentPositionBearing);
+      updateCurrentPositionMarkerBearing(
+        currentPositionMarker.current.getElement(),
+        currentPositionBearing,
+      );
     };
 
     if (mapInstance.isStyleLoaded()) {
@@ -827,7 +975,8 @@ export function MapContainer({
   }, [currentPositionBearing, visualCurrentPosition]);
 
   useEffect(() => {
-    if (!map.current || !followCurrentPosition || !visualCurrentPosition) return;
+    if (!map.current || !followCurrentPosition || !visualCurrentPosition)
+      return;
 
     const mapInstance = map.current;
     const followToCurrentPosition = () => {
@@ -837,19 +986,21 @@ export function MapContainer({
       const shouldThrottle = now - lastFollowAtRef.current < 1_500;
       const center = map.current.getCenter();
       const centerDistanceM = center.distanceTo(
-        new mapboxgl.LngLat(visualCurrentPosition[0], visualCurrentPosition[1])
+        new mapboxgl.LngLat(visualCurrentPosition[0], visualCurrentPosition[1]),
       );
       if (shouldThrottle && centerDistanceM < 35) return;
 
       lastFollowAtRef.current = now;
       const currentZoom = map.current.getZoom();
       const shouldAdjustZoom = currentZoom < 15.5 || centerDistanceM > 140;
-      runProgrammaticCameraMove(isProgrammaticCameraMoveRef, () => map.current?.easeTo({
-        center: visualCurrentPosition,
-        duration: 850,
-        essential: true,
-        ...(shouldAdjustZoom ? { zoom: Math.max(16.5, currentZoom) } : {})
-      }));
+      runProgrammaticCameraMove(isProgrammaticCameraMoveRef, () =>
+        map.current?.easeTo({
+          center: visualCurrentPosition,
+          duration: 850,
+          essential: true,
+          ...(shouldAdjustZoom ? { zoom: Math.max(16.5, currentZoom) } : {}),
+        }),
+      );
     };
 
     if (mapInstance.isStyleLoaded()) {
@@ -866,7 +1017,9 @@ export function MapContainer({
     if (!map.current || !followCurrentPosition || !onFollowInterrupted) return;
 
     const handleUserGesture = () => onFollowInterrupted();
-    const handleUserZoom = (event: mapboxgl.MapboxEvent & { originalEvent?: Event }) => {
+    const handleUserZoom = (
+      event: mapboxgl.MapboxEvent & { originalEvent?: Event },
+    ) => {
       if (event.originalEvent && !isProgrammaticCameraMoveRef.current) {
         onFollowInterrupted();
       }
@@ -885,52 +1038,80 @@ export function MapContainer({
   }, [followCurrentPosition, onFollowInterrupted]);
 
   const mapBody = (
-    <div className={cn(
-      variant === "bare" ? "relative h-full w-full" : "relative h-[320px] w-full sm:h-[360px] lg:h-[420px]",
-      mapClassName
-    )}>
-        {isLoading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-100/90 backdrop-blur-[1px]">
-            <div className="flex flex-col items-center gap-2">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-300 border-t-brand-600" />
-              <span className="text-sm text-slate-600">Cargando mapa...</span>
-            </div>
+    <div
+      className={cn(
+        variant === "bare"
+          ? "relative h-full w-full"
+          : "relative h-[320px] w-full sm:h-[360px] lg:h-[420px]",
+        mapClassName,
+      )}
+    >
+      {isLoading && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-100/90 backdrop-blur-[1px]">
+          <div className="flex flex-col items-center gap-2">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-300 border-t-brand-600" />
+            <span className="text-sm text-slate-600">Cargando mapa...</span>
           </div>
-        )}
-        {mapError && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-100">
-            <div className="text-center">
-              <p className="text-sm font-medium text-rose-600">{mapError}</p>
-              <p className="mt-1 text-xs text-slate-500">Revisá la configuración del mapa o la conexión del proveedor</p>
-            </div>
+        </div>
+      )}
+      {mapError && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-100">
+          <div className="text-center">
+            <p className="text-sm font-medium text-rose-600">{mapError}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Revisá la configuración del mapa o la conexión del proveedor
+            </p>
           </div>
-        )}
-        {showSegmentOverlay && !!effectiveSegmentRelation && (
-          <div className="absolute left-3 top-3 z-[5] rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-[11px] text-slate-700 shadow-sm backdrop-blur-sm">
-            <p className="font-semibold text-slate-800">Intento segmento</p>
-            <p>Estado: {segmentLiveSnapshot ? formatSegmentStatus(segmentLiveSnapshot.status) : "referencia"}</p>
-            <p>Distancia a ruta: {formatDistance(effectiveSegmentRelation.distanceM)}</p>
-            <p>Progreso: {Math.round((segmentLiveSnapshot?.progressPct ?? effectiveSegmentRelation.progressPct))}%</p>
-          </div>
-        )}
-        {showSpeedLegend && safeRouteCoordinates.length > 1 && (
-          <div className="absolute bottom-3 left-3 z-[5] rounded-lg border border-slate-200/80 bg-white/90 px-2.5 py-2 text-[10px] text-slate-600 shadow-sm backdrop-blur-sm">
-            <p className="font-semibold uppercase tracking-wide text-slate-700">Velocidad</p>
-            <p className="mt-1 flex items-center gap-1.5"><span className="inline-block h-1.5 w-3 rounded-full bg-sky-500" /> Baja (&lt;30)</p>
-            <p className="mt-0.5 flex items-center gap-1.5"><span className="inline-block h-1.5 w-3 rounded-full bg-emerald-500" /> Media (30-55)</p>
-            <p className="mt-0.5 flex items-center gap-1.5"><span className="inline-block h-1.5 w-3 rounded-full bg-orange-500" /> Alta (&gt;55)</p>
-          </div>
-        )}
-        <div ref={mapContainer} className="h-full w-full" />
-      </div>
+        </div>
+      )}
+      {showSegmentOverlay && !!effectiveSegmentRelation && (
+        <div className="absolute left-3 top-3 z-[5] rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-[11px] text-slate-700 shadow-sm backdrop-blur-sm">
+          <p className="font-semibold text-slate-800">Intento segmento</p>
+          <p>
+            Estado:{" "}
+            {segmentLiveSnapshot
+              ? formatSegmentStatus(segmentLiveSnapshot.status)
+              : "referencia"}
+          </p>
+          <p>
+            Distancia a ruta:{" "}
+            {formatDistance(effectiveSegmentRelation.distanceM)}
+          </p>
+          <p>
+            Progreso:{" "}
+            {Math.round(
+              segmentLiveSnapshot?.progressPct ??
+                effectiveSegmentRelation.progressPct,
+            )}
+            %
+          </p>
+        </div>
+      )}
+      {showSpeedLegend && safeRouteCoordinates.length > 1 && (
+        <div className="absolute bottom-3 left-3 z-[5] rounded-lg border border-slate-200/80 bg-white/90 px-2.5 py-2 text-[10px] text-slate-600 shadow-sm backdrop-blur-sm">
+          <p className="font-semibold uppercase tracking-wide text-slate-700">
+            Velocidad
+          </p>
+          <p className="mt-1 flex items-center gap-1.5">
+            <span className="inline-block h-1.5 w-3 rounded-full bg-sky-500" />{" "}
+            Baja (&lt;30)
+          </p>
+          <p className="mt-0.5 flex items-center gap-1.5">
+            <span className="inline-block h-1.5 w-3 rounded-full bg-emerald-500" />{" "}
+            Media (30-55)
+          </p>
+          <p className="mt-0.5 flex items-center gap-1.5">
+            <span className="inline-block h-1.5 w-3 rounded-full bg-orange-500" />{" "}
+            Alta (&gt;55)
+          </p>
+        </div>
+      )}
+      <div ref={mapContainer} className="h-full w-full" />
+    </div>
   );
 
   if (variant === "bare") {
-    return (
-      <div className={cn("overflow-hidden", className)}>
-        {mapBody}
-      </div>
-    );
+    return <div className={cn("overflow-hidden", className)}>{mapBody}</div>;
   }
 
   return (
@@ -975,7 +1156,7 @@ function upsertLineLayer(params: {
   const data = {
     type: "Feature",
     properties: {},
-    geometry: { type: "LineString", coordinates }
+    geometry: { type: "LineString", coordinates },
   } as const;
 
   if (map.getSource(sourceId)) {
@@ -983,7 +1164,11 @@ function upsertLineLayer(params: {
     if (map.getLayer(`${layerId}-outline`)) {
       map.setPaintProperty(`${layerId}-outline`, "line-color", outlineColor);
       map.setPaintProperty(`${layerId}-outline`, "line-width", outlineWidth);
-      map.setPaintProperty(`${layerId}-outline`, "line-opacity", outlineOpacity);
+      map.setPaintProperty(
+        `${layerId}-outline`,
+        "line-opacity",
+        outlineOpacity,
+      );
     }
     if (map.getLayer(layerId)) {
       map.setPaintProperty(layerId, "line-color", color);
@@ -1000,7 +1185,11 @@ function upsertLineLayer(params: {
     type: "line",
     source: sourceId,
     layout: { "line-join": "round", "line-cap": "round" },
-    paint: { "line-color": outlineColor, "line-width": outlineWidth, "line-opacity": outlineOpacity }
+    paint: {
+      "line-color": outlineColor,
+      "line-width": outlineWidth,
+      "line-opacity": outlineOpacity,
+    },
   });
 
   map.addLayer({
@@ -1012,8 +1201,8 @@ function upsertLineLayer(params: {
       "line-color": color,
       "line-width": width,
       "line-opacity": lineOpacity,
-      ...(dashArray ? { "line-dasharray": dashArray } : {})
-    }
+      ...(dashArray ? { "line-dasharray": dashArray } : {}),
+    },
   });
 }
 
@@ -1023,8 +1212,11 @@ function upsertSegmentSpeedLayer(
   layerId: string,
   data: FeatureCollection<
     LineString,
-    { speedKmh: number | null; speedBucket: "low" | "medium" | "high" | "unknown" }
-  >
+    {
+      speedKmh: number | null;
+      speedBucket: "low" | "medium" | "high" | "unknown";
+    }
+  >,
 ) {
   if (map.getSource(sourceId)) {
     (map.getSource(sourceId) as mapboxgl.GeoJSONSource).setData(data);
@@ -1084,7 +1276,10 @@ function removeSourceIfExists(map: mapboxgl.Map, sourceId: string) {
   }
 }
 
-function createSegmentMarkerElement(label: "Inicio" | "Meta", type: "start" | "end") {
+function createSegmentMarkerElement(
+  label: "Inicio" | "Meta",
+  type: "start" | "end",
+) {
   const container = document.createElement("div");
   container.className = "pointer-events-none flex items-center gap-1.5";
 
@@ -1094,7 +1289,8 @@ function createSegmentMarkerElement(label: "Inicio" | "Meta", type: "start" | "e
   badge.textContent = label;
 
   const dot = document.createElement("span");
-  dot.className = "inline-block h-4 w-4 rounded-full border-2 border-white shadow";
+  dot.className =
+    "inline-block h-4 w-4 rounded-full border-2 border-white shadow";
   dot.style.backgroundColor = type === "start" ? "#10b981" : "#f43f5e";
 
   container.appendChild(badge);
@@ -1103,12 +1299,16 @@ function createSegmentMarkerElement(label: "Inicio" | "Meta", type: "start" | "e
   return container;
 }
 
-function createRouteMarkerElement(label: "Inicio" | "Fin", type: "start" | "end") {
+function createRouteMarkerElement(
+  label: "Inicio" | "Fin",
+  type: "start" | "end",
+) {
   const container = document.createElement("div");
   container.className = "pointer-events-none flex items-center gap-1.5";
 
   const dot = document.createElement("span");
-  dot.className = "inline-block h-4 w-4 rounded-full border-2 border-white shadow";
+  dot.className =
+    "inline-block h-4 w-4 rounded-full border-2 border-white shadow";
   dot.style.backgroundColor = type === "start" ? "#2563eb" : "#dc2626";
 
   const badge = document.createElement("span");
@@ -1133,20 +1333,22 @@ function createDestinationMarkerElement() {
 
   const pin = document.createElement("div");
   pin.className = "relative";
-  
+
   // Pin shape using CSS
   const pinHead = document.createElement("span");
-  pinHead.className = "block h-5 w-5 rounded-full border-2 border-white shadow-lg";
+  pinHead.className =
+    "block h-5 w-5 rounded-full border-2 border-white shadow-lg";
   pinHead.style.backgroundColor = "#8b5cf6"; // Purple
   pinHead.style.boxShadow = "0 2px 8px rgba(139, 92, 246, 0.4)";
-  
+
   const pinPoint = document.createElement("span");
-  pinPoint.className = "absolute left-1/2 top-5 -translate-x-1/2 border-x-4 border-t-4 border-x-transparent border-t-purple-500";
+  pinPoint.className =
+    "absolute left-1/2 top-5 -translate-x-1/2 border-x-4 border-t-4 border-x-transparent border-t-purple-500";
   pinPoint.style.borderWidth = "6px";
 
   pin.appendChild(pinHead);
   pin.appendChild(pinPoint);
-  
+
   const label = document.createElement("span");
   label.className =
     "rounded-md border border-slate-200 bg-white/95 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm";
@@ -1169,11 +1371,13 @@ function createCurrentPositionMarkerElement(bearing: number | null) {
 
   const marker = document.createElement("span");
   marker.dataset.currentPositionBearing = "true";
-  marker.className = "relative flex h-6 w-6 items-center justify-center rounded-full border-[3px] border-white bg-teal-600 shadow-[0_4px_14px_rgba(15,23,42,0.28)]";
+  marker.className =
+    "relative flex h-6 w-6 items-center justify-center rounded-full border-[3px] border-white bg-teal-600 shadow-[0_4px_14px_rgba(15,23,42,0.28)]";
   marker.style.transition = "transform 260ms ease-out";
 
   const arrow = document.createElement("span");
-  arrow.className = "block h-0 w-0 border-x-[5px] border-b-[11px] border-x-transparent border-b-white";
+  arrow.className =
+    "block h-0 w-0 border-x-[5px] border-b-[11px] border-x-transparent border-b-white";
   arrow.style.transform = "translateY(-1px)";
 
   marker.appendChild(arrow);
@@ -1184,11 +1388,17 @@ function createCurrentPositionMarkerElement(bearing: number | null) {
   return container;
 }
 
-function updateCurrentPositionMarkerBearing(element: HTMLElement, bearing: number | null) {
-  const marker = element.querySelector<HTMLElement>("[data-current-position-bearing]");
+function updateCurrentPositionMarkerBearing(
+  element: HTMLElement,
+  bearing: number | null,
+) {
+  const marker = element.querySelector<HTMLElement>(
+    "[data-current-position-bearing]",
+  );
   if (!marker) return;
 
-  marker.style.transform = typeof bearing === "number" ? `rotate(${bearing}deg)` : "rotate(0deg)";
+  marker.style.transform =
+    typeof bearing === "number" ? `rotate(${bearing}deg)` : "rotate(0deg)";
 }
 
 function coordinateKey(coordinate: [number, number]): string {
@@ -1198,13 +1408,27 @@ function coordinateKey(coordinate: [number, number]): string {
 function resolveCurrentPositionBearing(
   trackSamples: TrackSpeedSample[],
   routeCoordinates: [number, number][],
-  visualPosition: [number, number] | null
+  visualPosition: [number, number] | null,
 ): number | null {
   const lastHeading = [...trackSamples]
     .reverse()
-    .map((sample) => (sample as TrackSpeedSample & { headingDegrees?: unknown; heading?: unknown }).headingDegrees ??
-      (sample as TrackSpeedSample & { heading?: unknown }).heading)
-    .find((heading): heading is number => typeof heading === "number" && Number.isFinite(heading) && heading >= 0 && heading <= 360);
+    .map(
+      (sample) =>
+        (
+          sample as TrackSpeedSample & {
+            headingDegrees?: unknown;
+            heading?: unknown;
+          }
+        ).headingDegrees ??
+        (sample as TrackSpeedSample & { heading?: unknown }).heading,
+    )
+    .find(
+      (heading): heading is number =>
+        typeof heading === "number" &&
+        Number.isFinite(heading) &&
+        heading >= 0 &&
+        heading <= 360,
+    );
 
   if (typeof lastHeading === "number") {
     return lastHeading;
@@ -1219,17 +1443,22 @@ function resolveCurrentPositionBearing(
 
 function appendVisualPositionForBearing(
   routeCoordinates: [number, number][],
-  visualPosition: [number, number]
+  visualPosition: [number, number],
 ): [number, number][] {
   const lastRouteCoordinate = routeCoordinates.at(-1);
-  if (lastRouteCoordinate && coordinateKey(lastRouteCoordinate) === coordinateKey(visualPosition)) {
+  if (
+    lastRouteCoordinate &&
+    coordinateKey(lastRouteCoordinate) === coordinateKey(visualPosition)
+  ) {
     return routeCoordinates;
   }
 
   return [...routeCoordinates, visualPosition];
 }
 
-function resolveBearingFromCoordinates(coordinates: [number, number][]): number | null {
+function resolveBearingFromCoordinates(
+  coordinates: [number, number][],
+): number | null {
   if (coordinates.length < 2) return null;
 
   const to = coordinates[coordinates.length - 1];
@@ -1237,7 +1466,9 @@ function resolveBearingFromCoordinates(coordinates: [number, number][]): number 
 
   for (let index = coordinates.length - 2; index >= 0; index -= 1) {
     const from = coordinates[index];
-    const distanceM = new mapboxgl.LngLat(from[0], from[1]).distanceTo(new mapboxgl.LngLat(to[0], to[1]));
+    const distanceM = new mapboxgl.LngLat(from[0], from[1]).distanceTo(
+      new mapboxgl.LngLat(to[0], to[1]),
+    );
     if (distanceM >= minDistanceM && distanceM <= 250) {
       return calculateBearingDegrees(from, to);
     }
@@ -1246,26 +1477,31 @@ function resolveBearingFromCoordinates(coordinates: [number, number][]): number 
   return null;
 }
 
-function calculateBearingDegrees(from: [number, number], to: [number, number]): number {
+function calculateBearingDegrees(
+  from: [number, number],
+  to: [number, number],
+): number {
   const fromLat = degreesToRadians(from[1]);
   const toLat = degreesToRadians(to[1]);
   const deltaLng = degreesToRadians(to[0] - from[0]);
   const y = Math.sin(deltaLng) * Math.cos(toLat);
-  const x = Math.cos(fromLat) * Math.sin(toLat) - Math.sin(fromLat) * Math.cos(toLat) * Math.cos(deltaLng);
+  const x =
+    Math.cos(fromLat) * Math.sin(toLat) -
+    Math.sin(fromLat) * Math.cos(toLat) * Math.cos(deltaLng);
   return (radiansToDegrees(Math.atan2(y, x)) + 360) % 360;
 }
 
 function degreesToRadians(value: number): number {
-  return value * Math.PI / 180;
+  return (value * Math.PI) / 180;
 }
 
 function radiansToDegrees(value: number): number {
-  return value * 180 / Math.PI;
+  return (value * 180) / Math.PI;
 }
 
 function runProgrammaticCameraMove(
   flagRef: MutableRefObject<boolean>,
-  move: () => void
+  move: () => void,
 ) {
   flagRef.current = true;
   move();
@@ -1334,16 +1570,18 @@ function fitToCoordinates(
   coordinates: [number, number][],
   padding: number,
   maxZoom: number,
-  programmaticMoveRef?: MutableRefObject<boolean>
+  programmaticMoveRef?: MutableRefObject<boolean>,
 ) {
   if (coordinates.length < 2) return;
 
   const bounds = coordinates.reduce(
     (b, c) => b.extend(c),
-    new mapboxgl.LngLatBounds(coordinates[0], coordinates[0])
+    new mapboxgl.LngLatBounds(coordinates[0], coordinates[0]),
   );
   if (programmaticMoveRef) {
-    runProgrammaticCameraMove(programmaticMoveRef, () => map.fitBounds(bounds, { padding, maxZoom }));
+    runProgrammaticCameraMove(programmaticMoveRef, () =>
+      map.fitBounds(bounds, { padding, maxZoom }),
+    );
     return;
   }
 
@@ -1355,7 +1593,7 @@ export function addRouteToMap(
   map: mapboxgl.Map,
   coordinates: [number, number][],
   color: string = ROUTE_COLORS.ride,
-  lineWidth: number = ROUTE_WIDTHS.standard
+  lineWidth: number = ROUTE_WIDTHS.standard,
 ) {
   const safeCoordinates = filterValidCoordinates(coordinates);
   if (safeCoordinates.length < 2) return;
@@ -1405,7 +1643,11 @@ export function addRouteToMap(
 // Utility function to add markers to the map
 export function addMarkersToMap(
   map: mapboxgl.Map,
-  points: Array<{ coordinates: [number, number]; label?: string; color?: string }>
+  points: Array<{
+    coordinates: [number, number];
+    label?: string;
+    color?: string;
+  }>,
 ) {
   points.forEach((point, index) => {
     const coordinate = normalizeCoordinate(point.coordinates);
@@ -1425,22 +1667,26 @@ export function addMarkersToMap(
       .setPopup(
         point.label
           ? new mapboxgl.Popup({ offset: 25 }).setHTML(
-              `<div class="text-sm font-medium text-slate-900">${point.label}</div>`
+              `<div class="text-sm font-medium text-slate-900">${point.label}</div>`,
             )
-          : undefined
+          : undefined,
       )
       .addTo(map);
   });
 }
 
 // Utility to fit map to coordinates
-export function fitMapToRoute(map: mapboxgl.Map, coordinates: [number, number][], padding = 50) {
+export function fitMapToRoute(
+  map: mapboxgl.Map,
+  coordinates: [number, number][],
+  padding = 50,
+) {
   const safeCoordinates = filterValidCoordinates(coordinates);
   if (safeCoordinates.length === 0) return;
 
   const bounds = safeCoordinates.reduce(
     (bounds, coord) => bounds.extend(coord),
-    new mapboxgl.LngLatBounds(safeCoordinates[0], safeCoordinates[0])
+    new mapboxgl.LngLatBounds(safeCoordinates[0], safeCoordinates[0]),
   );
 
   map.fitBounds(bounds, { padding, maxZoom: 15 });
