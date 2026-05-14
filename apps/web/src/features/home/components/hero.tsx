@@ -5,19 +5,6 @@ import { useEffect, useState } from "react";
 
 import { HERO_BACKGROUND_IMAGE } from "@/features/home/config/landing-content";
 
-interface MetricChip {
-  icon: string;
-  label: string;
-  delay: number;
-}
-
-const METRIC_CHIPS: MetricChip[] = [
-  { icon: "⚡", label: "Velocidad", delay: 0 },
-  { icon: "◈", label: "Segmento", delay: 100 },
-  { icon: "🛣️", label: "Distancia", delay: 200 },
-  { icon: "🏆", label: "Leaderboard", delay: 300 },
-];
-
 export function Hero() {
   const [isClient, setIsClient] = useState(false);
 
@@ -37,9 +24,9 @@ export function Hero() {
       {/* Brand glow overlays - using project colors */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(31,196,157,0.3),transparent_38%),radial-gradient(circle_at_85%_80%,rgba(31,82,123,0.35),transparent_38%)]" />
 
-      <div className="relative z-10 mx-auto flex w-full max-w-7xl gap-8 px-5 py-36 sm:px-8 lg:px-10 lg:py-44">
-        {/* Left Column - 40% Content */}
-        <div className="flex w-full flex-col justify-center lg:w-2/5">
+      <div className="relative z-10 mx-auto flex w-full max-w-7xl px-5 py-36 sm:px-8 lg:px-10 lg:py-44">
+        {/* Hero Content */}
+        <div className="flex w-full flex-col justify-center">
           <p
             className={`text-xs font-semibold uppercase tracking-[0.24em] text-brand-100 transition-all duration-700 ${
               isClient ? "opacity-100" : "opacity-0"
@@ -113,33 +100,6 @@ export function Hero() {
             >
               Ver cómo funciona
             </a>
-          </div>
-        </div>
-
-        {/* Right Column - Floating Metric Chips */}
-        <div className="hidden w-3/5 lg:flex items-center justify-center">
-          <div className="grid grid-cols-2 gap-4 sm:gap-6">
-            {METRIC_CHIPS.map((chip) => (
-              <div
-                key={chip.label}
-                className={`flex flex-col items-center gap-2 rounded-2xl border border-brand-400/30 bg-brand-500/10 p-6 backdrop-blur-sm transition-all duration-500 hover:border-brand-400/60 hover:bg-brand-500/20 ${
-                  isClient ? "opacity-100" : "opacity-0"
-                }`}
-                style={
-                  isClient
-                    ? {
-                        animation: `slideInFromRight 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards`,
-                        animationDelay: `${chip.delay + 200}ms`,
-                      }
-                    : {}
-                }
-              >
-                <span className="text-3xl">{chip.icon}</span>
-                <span className="text-center text-sm font-medium text-brand-100">
-                  {chip.label}
-                </span>
-              </div>
-            ))}
           </div>
         </div>
       </div>
